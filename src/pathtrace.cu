@@ -101,8 +101,9 @@ static Geom* dev_geoms = NULL;
 static Material* dev_materials = NULL;
 static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
-// TODO: static variables for device memory, any extra info you need, etc
-// ...
+// static variables for device memory, any extra info you need, etc
+// buffer for triangles
+static Triangle* dev_triangles = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -130,7 +131,14 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_intersections, pixelcount * sizeof(ShadeableIntersection));
     cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
-    // TODO: initialize any extra device memory you need
+    // initialize any extra device memory you need
+    if (!scene->triangles.empty()) {
+		cudaMalloc(&dev_triangles, scene->triangles.size() * sizeof(Triangle));
+        cudaMemcpy(dev_triangles,
+            scene->triangles.data(),
+            scene->triangles.size() * sizeof(Triangle),
+            cudaMemcpyHostToDevice);
+    }
 
     checkCUDAError("pathtraceInit");
 }
@@ -142,9 +150,18 @@ void pathtraceFree()
     cudaFree(dev_geoms);
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
-    // TODO: clean up any extra device memory you created
+    // clean up any extra device memory you created
+    cudaFree(dev_triangles);
+    dev_triangles = NULL;
 
     checkCUDAError("pathtraceFree");
+}
+
+void pathtraceReset() {
+    const Camera& cam = hst_scene->state.camera;
+	const int pixelcount = cam.resolution.x * cam.resolution.y;
+	cudaMemset(dev_image, 0, pixelcount * sizeof(glm::vec3));
+	checkCUDAError("pathtraceReset");
 }
 
 /**
@@ -195,6 +212,7 @@ __global__ void computeIntersections(
     PathSegment* pathSegments,
     Geom* geoms,
     int geoms_size,
+    Triangle* triangles,
     ShadeableIntersection* intersections)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -218,6 +236,8 @@ __global__ void computeIntersections(
         for (int i = 0; i < geoms_size; i++)
         {
             Geom& geom = geoms[i];
+            // reset t so unhandled geometry types won't reuse prev result
+			t = -1.0f;
 
             if (geom.type == CUBE)
             {
@@ -226,8 +246,11 @@ __global__ void computeIntersections(
             else if (geom.type == SPHERE)
             {
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-            }
-            // TODO: add more intersection tests here... triangle? metaball? CSG?
+            } else if (geom.type == MESH) {
+				int triIdx;
+				t = triangleIntersectionTest(geom, triangles, pathSegment.ray, tmp_intersect, tmp_normal, outside, triIdx);
+			}
+            // add more intersection tests here... triangle? metaball? CSG?
 
             // Compute the minimum t from the intersection tests to determine what
             // scene geometry object was hit first.
@@ -451,6 +474,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_paths,
             dev_geoms,
             hst_scene->geoms.size(),
+            dev_triangles,
             dev_intersections
         );
         checkCUDAError("trace one bounce");

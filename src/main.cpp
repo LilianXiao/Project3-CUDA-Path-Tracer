@@ -381,6 +381,7 @@ int main(int argc, char** argv)
 
     // Initialize CUDA and GL components
     init();
+    pathtraceInit(scene);
 
     // Initialize ImGui Data
     InitImguiData(guiData);
@@ -444,10 +445,11 @@ void runCuda()
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
+    // ** The base code appears to be destroying and reallocating everything.
+    // Instead, can just reset the state
     if (iteration == 0)
     {
-        pathtraceFree();
-        pathtraceInit(scene);
+        pathtraceReset();
     }
 
     if (iteration < renderState->iterations)

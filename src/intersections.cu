@@ -111,3 +111,80 @@ __host__ __device__ float sphereIntersectionTest(
 
     return glm::length(r.origin - intersectionPoint);
 }
+
+__host__ __device__ float mollerTrumbore(
+    const Triangle& tri,
+    const Ray& r,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    bool& outside
+) {
+    // vectors for two edges that share v0
+	glm::vec3 e1 = tri.v1 - tri.v0;
+	glm::vec3 e2 = tri.v2 - tri.v0;
+
+    // find determinant
+	glm::vec3 p = glm::cross(r.direction, e2);
+	float determinant = glm::dot(e1, p);
+	// suppose ray is parallel to triangle plane
+    if (fabs(determinant) < 1e-8f) {
+        return -1.0f;
+	}
+	float invDeterminant = 1.0f / determinant;
+
+	// distance between v0 and ray origin, find u
+    glm::vec3 tVec = r.origin - tri.v0;
+	float u = glm::dot(tVec, p) * invDeterminant;
+    if ((u < 0.f) || (u > 1.f)) {
+        return -1.0f;
+    }
+
+    // find v
+	glm::vec3 q = glm::cross(tVec, e1);
+	float v = glm::dot(r.direction, q) * invDeterminant;
+    if ((v < 0.f) || (u + v > 1.f)) {
+        return -1.0f;
+    }
+	
+    float t = glm::dot(e2, q) * invDeterminant;
+    if (t <= 0.f) {
+        return -1.f;
+    }
+
+	intersectionPoint = r.origin + t * r.direction;
+    normal = glm::normalize((1.f - u - v) * tri.n0 + u * tri.n1 + v * tri.n2);
+    outside = glm::dot(normal, r.direction) < 0.f;
+    if (!outside) {
+		normal = -normal;
+    }
+
+    return t;
+}
+
+__host__ __device__ float triangleIntersectionTest(
+    const Geom& mesh,
+    const Triangle* triangles,
+    const Ray r,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    bool& outside,
+    int& triIdx) {
+    // everything should already be in world space (this was done during loading)
+    float tBest = FLT_MAX;
+    triIdx = -1;
+    for (int i = mesh.triStart; i < mesh.triStart + mesh.numTris; ++i) {
+        glm::vec3 p;
+        glm::vec3 n;
+        bool o;
+		float t = mollerTrumbore(triangles[i], r, p, n, o);
+        if (t > 0.f && t < tBest) {
+            tBest = t;
+			intersectionPoint = p;
+            normal = n;
+            outside = o;
+			triIdx = i;
+        }
+	}
+    
+	return triIdx >= 0 ? tBest : -1.f;
+}
