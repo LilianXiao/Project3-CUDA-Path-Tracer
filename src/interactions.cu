@@ -51,7 +51,21 @@ __host__ __device__ void scatterRay(
     const Material &m,
     thrust::default_random_engine &rng)
 {
-    // TODO: implement this.
     // A basic implementation of pure-diffuse shading will just call the
     // calculateRandomDirectionInHemisphere defined above.
+    
+    // emissive materials don't scatter
+    if (m.emittance > 0.f) {
+        pathSegment.color *= (m.emittance * m.color);
+		pathSegment.remainingBounces = 0;
+        return;
+    }
+
+    glm::vec3 dir = calculateRandomDirectionInHemisphere(normal, rng);
+
+    // add small epsilon to prevent self intersection
+    pathSegment.ray.origin = intersect + normal * EPSILON;
+	pathSegment.ray.direction = glm::normalize(dir);
+	pathSegment.color *= m.color;
+    pathSegment.remainingBounces = glm::max(0, pathSegment.remainingBounces - 1);
 }
