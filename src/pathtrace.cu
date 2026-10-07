@@ -1,4 +1,5 @@
 #include "pathtrace.h"
+#include "procedural.h"
 
 #include <cstdio>
 #include <cuda.h>
@@ -18,7 +19,7 @@
 #include "interactions.h"
 
 #define ERRORCHECK 1
-#define MATERIALSORT 0
+#define MATERIALSORT 1
 #define STREAMCOMPACT 1
 #define ANTIALIASING 1
 
@@ -104,6 +105,8 @@ static ShadeableIntersection* dev_intersections = NULL;
 // static variables for device memory, any extra info you need, etc
 // buffer for triangles
 static Triangle* dev_triangles = NULL;
+static Texture* dev_textures = NULL;
+static glm::vec3* dev_texels = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -140,6 +143,23 @@ void pathtraceInit(Scene* scene)
             cudaMemcpyHostToDevice);
     }
 
+    // texture buffers
+    if (!scene->textures.empty()) {
+        cudaMalloc(&dev_textures, scene->textures.size() * sizeof(Texture));
+        cudaMemcpy(dev_textures,
+            scene->textures.data(),
+            scene->textures.size() * sizeof(Texture),
+            cudaMemcpyHostToDevice);
+    }
+
+    if (!scene->texels.empty()) {
+        cudaMalloc(&dev_texels, scene->texels.size() * sizeof(glm::vec3));
+        cudaMemcpy(dev_texels,
+            scene->texels.data(),
+            scene->texels.size() * sizeof(glm::vec3),
+            cudaMemcpyHostToDevice);
+    }
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -153,6 +173,10 @@ void pathtraceFree()
     // clean up any extra device memory you created
     cudaFree(dev_triangles);
     dev_triangles = NULL;
+    cudaFree(dev_textures);
+    dev_textures = NULL;
+    cudaFree(dev_texels);
+    dev_texels = NULL;
 
     checkCUDAError("pathtraceFree");
 }
@@ -224,20 +248,26 @@ __global__ void computeIntersections(
         float t;
         glm::vec3 intersect_point;
         glm::vec3 normal;
+        glm::vec3 tangent;
+        glm::vec2 uv;
         float t_min = FLT_MAX;
         int hit_geom_index = -1;
         bool outside = true;
 
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
+        glm::vec3 tmp_tangent;
+        glm::vec2 tmp_uv;
 
         // naive parse through global geoms
 
         for (int i = 0; i < geoms_size; i++)
         {
             Geom& geom = geoms[i];
-            // reset t so unhandled geometry types won't reuse prev result
+            // reset params so unhandled geometry types won't reuse prev result
 			t = -1.0f;
+            tmp_tangent = glm::vec3(0.f);
+            tmp_uv = glm::vec2(0.f);
 
             if (geom.type == CUBE)
             {
@@ -248,9 +278,9 @@ __global__ void computeIntersections(
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             } else if (geom.type == MESH) {
 				int triIdx;
-				t = triangleIntersectionTest(geom, triangles, pathSegment.ray, tmp_intersect, tmp_normal, outside, triIdx);
+				t = triangleIntersectionTest(geom, triangles, pathSegment.ray, tmp_intersect, tmp_normal, tmp_tangent, tmp_uv, outside, triIdx);
 			}
-            // add more intersection tests here... triangle? metaball? CSG?
+            // add more intersection tests as necessary!
 
             // Compute the minimum t from the intersection tests to determine what
             // scene geometry object was hit first.
@@ -260,6 +290,8 @@ __global__ void computeIntersections(
                 hit_geom_index = i;
                 intersect_point = tmp_intersect;
                 normal = tmp_normal;
+                tangent = tmp_tangent;
+                uv = tmp_uv;
             }
         }
 
@@ -275,6 +307,8 @@ __global__ void computeIntersections(
             intersections[path_index].t = t_min;
             intersections[path_index].materialId = geoms[hit_geom_index].materialid;
             intersections[path_index].surfaceNormal = normal;
+			intersections[path_index].tangent = tangent;
+			intersections[path_index].uv = uv;
         }
     }
 }
@@ -340,7 +374,9 @@ __global__ void shadeMaterial(
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    Material* materials)
+    Material* materials, 
+    Texture* textures,
+    glm::vec3* texels)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
@@ -367,6 +403,54 @@ __global__ void shadeMaterial(
                 thrust::default_random_engine rng = makeSeededRandomEngine(iter, pathSegments[idx].pixelIndex, depth);
                 // ray + t
 				glm::vec3 isectP = pathSegments[idx].ray.origin + pathSegments[idx].ray.direction * intersection.t;
+                
+                // flat mat -> albedo texture IF texture exists
+                // also handle bump mapping here!!
+                if (material.noiseId == 1) { // fbm perlin
+                    float fn = fbm(isectP * material.noiseScale, 5) * 0.5f + 0.5f;
+                    material.color *= glm::clamp(fn, 0.f, 1.f);
+                }
+                else if (material.noiseId == 2) { // voronoi
+                    float vn = voronoi(isectP * material.noiseScale);
+                    material.color *= glm::clamp(vn, 0.f, 1.f);
+                }
+                else if (material.noiseId == 3) { // voronoi with fbm input
+                    glm::vec3 q = isectP * material.noiseScale;
+                    glm::vec3 warp = fbmVec(q * material.warpFreq, 5);
+                    unsigned int cellId;
+                    float d = voronoiBetter(q + material.warpStrength * warp, 1.f, cellId);
+                    material.color *= glm::clamp(d, 0.f, 1.f);
+                }
+                else if (material.albedoTexId >= 0) { // otherwise look for file texture
+                    material.color = sampleTexture(textures[material.albedoTexId], texels, intersection.uv);
+                }
+
+                glm::vec3 N = intersection.surfaceNormal;
+                if (material.bumpTexId >= 0) {
+                    // T is the tangent (directed toward u's increase)
+                    glm::vec3 T = intersection.tangent - N * glm::dot(N, intersection.tangent);
+
+                    if (glm::dot(T, T) > 1e-10f) {
+                        T = glm::normalize(T);
+                        // B is the bitangent (diretion of v's increase)
+                        glm::vec3 B = glm::cross(N, T);
+
+                        // calculate height map slope
+                        const Texture& bump = textures[material.bumpTexId];
+                        glm::vec2 du(1.f / bump.width, 0.f);
+                        glm::vec2 dv(0.f, 1.f / bump.height);
+
+                        // for finding slopes
+                        float h = sampleTexture(bump, texels, intersection.uv).x;
+                        float hu = sampleTexture(bump, texels, intersection.uv + du).x;
+                        float hv = sampleTexture(bump, texels, intersection.uv + dv).x;
+
+                        // the height map displaces along N, where T and B move along the slope of u and v respectively
+                        // thus the normal is perpendicular to these steps
+                        N = glm::normalize(N - material.bumpStrength * ((hu - h) * T + (hv - h) * B));
+                    }
+                }
+                
                 scatterRay(pathSegments[idx], isectP, intersection.surfaceNormal, material, rng);
                 
                 // make sure paths that never hit emitters don't contribute light
@@ -508,7 +592,9 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials
+            dev_materials, 
+            dev_textures,
+            dev_texels
         );
 		checkCUDAError("shadeMaterial");
 

@@ -84,6 +84,8 @@ __host__ __device__ float mollerTrumbore(
     const Ray& r,
 	glm::vec3& intersectionPoint,
     glm::vec3& normal,
+    glm::vec3& tangent,
+    glm::vec2& uv,
     bool& outside
 );
 /**
@@ -99,8 +101,10 @@ __host__ __device__ float mollerTrumbore(
 __host__ __device__ float triangleIntersectionTest(
     const Geom& mesh,
     const Triangle* triangles,
-    const Ray r,
+    const Ray& r,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,
+    glm::vec3& tangent,
+    glm::vec2& uv,
     bool& outside,
 	int& triIdx);

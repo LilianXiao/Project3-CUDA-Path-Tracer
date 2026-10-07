@@ -69,3 +69,16 @@ __host__ __device__ void scatterRay(
 	pathSegment.color *= m.color;
     pathSegment.remainingBounces = glm::max(0, pathSegment.remainingBounces - 1);
 }
+
+__host__ __device__ glm::vec3 sampleTexture(
+    const Texture& tex,
+    const glm::vec3* texels,
+    glm::vec2 uv
+) {
+    // wrap uvs 0 -> 1
+    uv = uv - glm::floor(uv);
+    int x = glm::min((int)(uv.x * tex.width), tex.width - 1);
+    int y = glm::min((int)((1.f - uv.y) * tex.height), tex.height - 1);
+
+    return texels[tex.offset + y * tex.width + x];
+}

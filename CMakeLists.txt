@@ -58,6 +58,8 @@ set(headers
     src/sceneStructs.h
     src/utilities.h
     src/tiny_obj_loader.h
+    src/stb_image.h
+    src/procedural.h
 )
 
 set(sources
@@ -70,6 +72,7 @@ set(sources
     src/interactions.cu
     src/scene.cpp
     src/utilities.cpp
+    src/procedural.cu
 )
 
 set(imgui_headers

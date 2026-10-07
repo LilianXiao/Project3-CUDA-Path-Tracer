@@ -4,6 +4,7 @@
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
+#include "stb_image.h"
 
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/string_cast.hpp>
@@ -35,18 +36,56 @@ Scene::Scene(string filename)
     }
 }
 
+int Scene::loadTexture(const std::string& texName) {
+    int w;
+    int h;
+    int channels;
+	float* data = stbi_loadf(texName.c_str(), &w, &h, &channels, 3);
+    if (!data) {
+		std::cerr << "std image: Failed to load texture!" << texName << std::endl;
+        exit(-1);
+    }
+    
+    Texture tex{
+		w, h, (int)texels.size()
+    };
+
+    for (int i = 0; i < w * h; ++i) {
+        texels.emplace_back(
+            data[3 * i], 
+            data[3 * i + 1],
+            data[3 * i + 2]
+        );
+    }
+    stbi_image_free(data);
+	textures.push_back(tex);
+
+    return (int)textures.size() - 1;
+}
+
 void Scene::loadFromJSON(const std::string& jsonName)
 {
     std::ifstream f(jsonName);
     json data = json::parse(f);
     const auto& materialsData = data["Materials"];
     std::unordered_map<std::string, uint32_t> MatNameToID;
+    // we will retrieve from file path
+    const std::string basePath = jsonName.substr(0, jsonName.find_last_of("/\\") + 1);
+
     for (const auto& item : materialsData.items())
     {
         const auto& name = item.key();
         const auto& p = item.value();
         Material newMaterial{};
-        // TODO: handle materials loading differently
+        newMaterial.albedoTexId = -1;
+        newMaterial.bumpTexId = -1;
+        newMaterial.bumpStrength = 1.f;
+        newMaterial.noiseId = 0;
+        newMaterial.noiseScale = 1.f;
+        newMaterial.warpStrength = 1.f;
+        newMaterial.warpFreq = 1.f;
+
+        // handle materials loading differently
         if (p["TYPE"] == "Diffuse")
         {
             const auto& col = p["RGB"];
@@ -63,6 +102,46 @@ void Scene::loadFromJSON(const std::string& jsonName)
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
         }
+
+        if (p.contains("TEXTURE")) {
+            const std::string file = p["TEXTURE"];
+            newMaterial.albedoTexId = loadTexture(basePath + file);
+        }
+
+        if (p.contains("BUMP")) {
+            const std::string file = p["BUMP"];
+            newMaterial.bumpTexId = loadTexture(basePath + file);
+        }
+
+        if (p.contains("BUMP_STRENGTH")) {
+            newMaterial.bumpStrength = p["BUMP_STRENGTH"];
+        }
+
+        if (p.contains("NOISE")) {
+            const std::string type = p["NOISE"];
+            if (type == "fbm") {
+                newMaterial.noiseId = 1;
+            }
+            else if (type == "voronoi") {
+                newMaterial.noiseId = 2;
+            }
+            else if (type == "fbm voronoi") {
+                newMaterial.noiseId = 3;
+            }
+        }
+
+        if (p.contains("NOISE_SCALE")) {
+            newMaterial.noiseScale = p["NOISE_SCALE"];
+        }
+
+        if (p.contains("WARP_STRENGTH")) {
+            newMaterial.warpStrength = p["WARP_STRENGTH"];
+        }
+
+        if (p.contains("WARP_FREQUENCY")) {
+            newMaterial.warpFreq = p["WARP_FREQUENCY"];
+        }
+
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
     }
@@ -72,8 +151,6 @@ void Scene::loadFromJSON(const std::string& jsonName)
         {"cube", CUBE},
         {"mesh", MESH}
     };
-    // we will retrieve from file path
-	const std::string basePath = jsonName.substr(0, jsonName.find_last_of("/\\") + 1);
 
     const auto& objectsData = data["Objects"];
     for (const auto& p : objectsData)
@@ -85,27 +162,19 @@ void Scene::loadFromJSON(const std::string& jsonName)
             exit(-1);
         }
 
-        Geom newGeom;
+        Geom newGeom{};
 		newGeom.type = it->second;
-
-        if (type == "cube")
-        {
-            newGeom.type = CUBE;
-        }
-        else if (type == "sphere")
-        {
-            newGeom.type = SPHERE;
-        }
 
         newGeom.materialid = MatNameToID[p["MATERIAL"]];
         const auto& trans = p["TRANS"];
         const auto& rotat = p["ROTAT"];
         const auto& scale = p["SCALE"];
+
         newGeom.translation = glm::vec3(trans[0], trans[1], trans[2]);
         newGeom.rotation = glm::vec3(rotat[0], rotat[1], rotat[2]);
         newGeom.scale = glm::vec3(scale[0], scale[1], scale[2]);
         newGeom.transform = utilityCore::buildTransformationMatrix(
-            newGeom.translation, newGeom.rotation, newGeom.scale);
+        newGeom.translation, newGeom.rotation, newGeom.scale);
         newGeom.inverseTransform = glm::inverse(newGeom.transform);
         newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
 
@@ -227,6 +296,23 @@ void Scene::loadMeshFromOBJ(const std::string& objName, Geom& geom) {
             else {
 				tri.n0 = tri.n1 = tri.n2 = 
                     glm::normalize(glm::cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+            }
+
+            // set uvs
+            if (i1.texcoord_index >= 0 && i2.texcoord_index >= 0 && i3.texcoord_index >= 0) {
+				tri.uv0 = uv(i1);
+				tri.uv1 = uv(i2);
+				tri.uv2 = uv(i3);
+
+                // compute tangent
+				glm::vec3 e1 = tri.v1 - tri.v0;
+                glm::vec3 e2 = tri.v2 - tri.v0;
+				glm::vec2 d1 = tri.uv1 - tri.uv0;
+				glm::vec2 d2 = tri.uv2 - tri.uv0;
+				float determinant = d1.x * d2.y - d1.y * d2.x;
+                if (fabs(determinant) > 1e-8f) {
+                    tri.tangent = glm::normalize((e1 * d2.y - e2 * d1.y) / determinant);
+                }
             }
 
 			geom.bboxMin = glm::min(geom.bboxMin, glm::min(tri.v0, glm::min(tri.v1, tri.v2)));

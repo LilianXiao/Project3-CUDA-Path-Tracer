@@ -117,6 +117,8 @@ __host__ __device__ float mollerTrumbore(
     const Ray& r,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,
+    glm::vec3& tangent,
+    glm::vec2& uv,
     bool& outside
 ) {
     // vectors for two edges that share v0
@@ -158,15 +160,21 @@ __host__ __device__ float mollerTrumbore(
 		normal = -normal;
     }
 
+    // use barycentric interpolation for uvs
+	uv = (1.f - u - v) * tri.uv0 + u * tri.uv1 + v * tri.uv2;
+    tangent = tri.tangent;
+
     return t;
 }
 
 __host__ __device__ float triangleIntersectionTest(
     const Geom& mesh,
     const Triangle* triangles,
-    const Ray r,
+    const Ray& r,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,
+    glm::vec3& tangent,
+    glm::vec2& uv,
     bool& outside,
     int& triIdx) {
     // everything should already be in world space (this was done during loading)
@@ -175,12 +183,16 @@ __host__ __device__ float triangleIntersectionTest(
     for (int i = mesh.triStart; i < mesh.triStart + mesh.numTris; ++i) {
         glm::vec3 p;
         glm::vec3 n;
+        glm::vec3 tan;
+        glm::vec2 uvs;
         bool o;
-		float t = mollerTrumbore(triangles[i], r, p, n, o);
+		float t = mollerTrumbore(triangles[i], r, p, n, tan, uvs, o);
         if (t > 0.f && t < tBest) {
             tBest = t;
 			intersectionPoint = p;
             normal = n;
+            tangent = tan;
+            uv = uvs;
             outside = o;
 			triIdx = i;
         }

@@ -24,9 +24,19 @@ struct Triangle
     glm::vec3 n0;
     glm::vec3 n1;
     glm::vec3 n2;
+    glm::vec3 tangent;
     glm::vec2 uv0;
     glm::vec2 uv1;
 	glm::vec2 uv2;
+};
+
+struct Texture
+{
+    int width;
+    int height;
+    // offset is the position in the texel buffer/array.
+    // because we want contiguous memory, we want to avoid having a pointer per texture.
+    int offset;
 };
 
 struct Ray
@@ -64,6 +74,20 @@ struct Material
     float hasRefractive;
     float indexOfRefraction;
     float emittance;
+    
+    int albedoTexId;
+    int bumpTexId;
+    float bumpStrength;
+
+    // 0: no noise
+    // 1: fbm perlin
+    // 2: voronoi
+    // 3: voronoi with fbm input
+    int noiseId;
+    float noiseScale;
+    // at 0, pure voronoi
+    float warpStrength;
+    float warpFreq;
 };
 
 struct Camera
@@ -102,5 +126,7 @@ struct ShadeableIntersection
 {
   float t;
   glm::vec3 surfaceNormal;
+  glm::vec3 tangent;
+  glm::vec2 uv;
   int materialId;
 };
