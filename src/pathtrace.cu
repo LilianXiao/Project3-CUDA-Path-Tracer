@@ -22,6 +22,7 @@
 #define MATERIALSORT 1
 #define STREAMCOMPACT 1
 #define ANTIALIASING 1
+#define DIRECT_LIGHTING 1
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -113,6 +114,8 @@ static Texture* dev_textures = NULL;
 static glm::vec3* dev_texels = NULL;
 // buffer for BVH nodes
 static BVHNode* dev_bvhNodes = NULL;
+// buffer for MIS
+static int* dev_lightIds = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -174,6 +177,14 @@ void pathtraceInit(Scene* scene)
             cudaMemcpyHostToDevice);
     }
 
+    if (!scene->lightIds.empty()) {
+        cudaMalloc(&dev_lightIds, scene->lightIds.size() * sizeof(int));
+        cudaMemcpy(dev_lightIds,
+            scene->lightIds.data(),
+            scene->lightIds.size() * sizeof(int),
+            cudaMemcpyHostToDevice);
+    }
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -193,6 +204,8 @@ void pathtraceFree()
     dev_texels = NULL;
     cudaFree(dev_bvhNodes);
     dev_bvhNodes = NULL;
+    cudaFree(dev_lightIds);
+    dev_lightIds = NULL;
 
     checkCUDAError("pathtraceFree");
 }
@@ -269,6 +282,9 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
         segment.mediumMaterial = -1;
+
+        segment.radiance = glm::vec3(0.f);
+        segment.lastPdf = -1.f;
     }
 }
 
@@ -357,8 +373,84 @@ __global__ void computeIntersections(
 			intersections[path_index].tangent = tangent;
 			intersections[path_index].uv = uv;
             intersections[path_index].outside = outside;
+            intersections[path_index].geomId = hit_geom_index;
         }
     }
+}
+
+/**
+* Helper: pick a point uniformly from a cube's surface
+*/
+__host__ __device__ inline void sampleCube(
+    const Geom& g,
+    float u0,
+    float u1,
+    float u2,
+    glm::vec3& p,
+    glm::vec3& n
+) {
+    glm::vec3 s = g.scale;
+    float ax = s.y * s.z;
+    float ay = s.x * s.z;
+    float az = s.x * s.y;
+    float pick = u0 * (ax + ay + az);
+    int axis = pick < ax ? 0 : (pick < ax + ay ? 1 : 2);
+
+    float sign = (u1 < 0.5f) ? -1.f : 1.f;
+    float a = (u1 < 0.5f ? u1 * 2.f : u1 * 2.f - 1.f) - 0.5f;
+    float b = u2 - 0.5f;
+
+    glm::vec3 local(0.f);
+    glm::vec3 ln(0.f);
+
+    local[axis] = 0.5f * sign;
+    local[(axis + 1) % 3] = a;
+    local[(axis + 2) % 3] = b;
+    ln[axis] = sign;
+
+    p = multiplyMV(g.transform, glm::vec4(local, 1.f));
+    n = glm::normalize(multiplyMV(g.invTranspose, glm::vec4(ln, 0.f)));
+}
+
+/**
+* Helper: visibility test
+*/
+__device__ bool isOccluded(
+    const Ray& r,
+    float maxDist,
+    const Geom* geoms,
+    int geomCount,
+    const Triangle* triangles,
+    const BVHNode* nodes
+) {
+    glm::vec3 p;
+    glm::vec3 n;
+    glm::vec3 tan;
+    glm::vec2 uv;
+    bool o;
+    int tri;
+
+    for (int i = 0; i < geomCount; ++i) {
+        const Geom& g = geoms[i];
+        float t = -1.f;
+
+        if (g.type == CUBE) {
+            t = boxIntersectionTest(g, r, p, n, o);
+        }
+        else if (g.type == SPHERE) {
+            t = sphereIntersectionTest(g, r, p, n, o);
+        }
+        else if (g.type == MESH) {
+            t = triangleIntersectionTest(
+                g, triangles, nodes, r, p, n, tan, uv, o, tri);
+        }
+
+        if (t > 0.f && t < maxDist) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // LOOK: "fake" shader demonstrating what you might do with the info in
@@ -426,7 +518,13 @@ __global__ void shadeMaterial(
     Texture* textures,
     glm::vec3* texels,
     int envTexId,
-    float envIntensity)
+    float envIntensity,
+    int* lightIds,
+    int lightCount,
+    Geom* geoms,
+    int geomCount,
+    Triangle* triangles,
+    BVHNode* bvhNodes)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
@@ -495,12 +593,12 @@ __global__ void shadeMaterial(
                 seg.ray.direction = calculateRandomDirectionInHemisphere(outward, rng);
                 seg.ray.origin = p + outward * 1e-3f;
                 seg.mediumMaterial = -1;
+                seg.lastPdf = -1.f;
             }
 
             seg.remainingBounces--;
             if (seg.remainingBounces <= 0) {
                 seg.remainingBounces = 0;
-                seg.color = glm::vec3(0.f);
             }
 
             return;
@@ -512,8 +610,27 @@ __global__ void shadeMaterial(
             glm::vec3 materialColor = material.color;
 
             // If the material indicates that the object was a light, "light" the ray
+            // for MIS, add to radiance instead of color
             if (material.emittance > 0.0f) {
-                pathSegments[idx].color *= (materialColor * material.emittance);
+                // weight emitters
+                float w = 1.f;
+                const Geom& hit = geoms[intersection.geomId];
+                if ((pathSegments[idx].lastPdf > 0.f) && (hit.type == CUBE)) {
+                    float cosL = glm::abs(
+                        glm::dot(intersection.surfaceNormal, 
+                            pathSegments[idx].ray.direction));
+                    float pdfLight = intersection.t
+                        * intersection.t
+                        / (hit.area * cosL * lightCount);
+
+                    w = pathSegments[idx].lastPdf
+                        / (pathSegments[idx].lastPdf + pdfLight);
+                }
+                pathSegments[idx].radiance += 
+                    pathSegments[idx].color 
+                    * materialColor 
+                    * material.emittance
+                    * w;
 				pathSegments[idx].remainingBounces = 0;
             }
             else {
@@ -569,6 +686,51 @@ __global__ void shadeMaterial(
                         N = glm::normalize(N - material.bumpStrength * ((hu - h) * T + (hv - h) * B));
                     }
                 }
+
+                bool delta = (material.hasReflective > 0.f) || (material.hasRefractive > 0.f);
+                bool sampled = false;
+
+#if DIRECT_LIGHTING
+                if (!delta && material.sssDensity <= 0.f && lightCount > 0) {
+                    thrust::uniform_real_distribution<float> u01(0, 1);
+                    int li = glm::min((int)(u01(rng) * lightCount), lightCount - 1);
+                    const Geom& light = geoms[lightIds[li]];
+
+                    glm::vec3 lp;
+                    glm::vec3 ln;
+                    
+                    sampleCube(light, u01(rng), u01(rng), u01(rng), lp, ln);
+                    glm::vec3 toLight = lp - isectP;
+                    float dist2 = glm::dot(toLight, toLight);
+                    float dist = sqrtf(dist2);
+                    glm::vec3 wi = toLight / dist;
+                    float cosS = glm::dot(N, wi);
+                    float cosL = glm::abs(glm::dot(ln, wi));
+
+                    if (cosS > 0.f && cosL > 1e-6f) {
+                        Ray shadow;
+                        shadow.origin = isectP + N * 1e-3f;
+                        shadow.direction = wi;
+
+                        if (!isOccluded(shadow, dist - 2e-3f, geoms, geomCount, triangles, bvhNodes)) {
+                            float pdfLight = dist2 / (light.area * cosL * lightCount);
+                            float pdfBsdf = cosS / PI;
+                            float w = pdfLight / (pdfLight + pdfBsdf);
+
+                            const Material& lm = materials[light.materialid];
+                            glm::vec3 Le = lm.color * lm.emittance;
+                            // what a funny equation I totally haven't seen before...
+                            pathSegments[idx].radiance +=
+                                pathSegments[idx].color
+                                * (material.color / PI)
+                                * Le
+                                * cosS
+                                * w / pdfLight;
+                        }
+                    }
+                    sampled = true;
+                }
+#endif
                 
                 if (material.sssDensity > 0.f && intersection.outside) {
                     glm::vec3 inward = -N;
@@ -580,11 +742,9 @@ __global__ void shadeMaterial(
                 else {
                     scatterRay(pathSegments[idx], isectP, N, intersection.outside, material, rng);
                 }
-                                
-                // make sure paths that never hit emitters don't contribute light
-                if (pathSegments[idx].remainingBounces == 0) {
-                    pathSegments[idx].color = glm::vec3(0.f);
-                }
+
+                pathSegments[idx].lastPdf = sampled
+                    ? glm::max(glm::dot(N, pathSegments[idx].ray.direction), 0.f) / PI : -1.f;
             }
             // If there was no intersection, color the ray black.
             // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
@@ -593,6 +753,7 @@ __global__ void shadeMaterial(
         }
         else {
             // Add environment illumination support
+            // remove the black case and clamping for MIS
             if (envTexId >= 0) {
                 glm::vec3 env = sampleEnvironment(
                     textures[envTexId],
@@ -601,11 +762,8 @@ __global__ void shadeMaterial(
                 );
                 // clamp to remove most fireflies
                 env = glm::min(env, glm::vec3(20.f));
-                pathSegments[idx].color *= envIntensity * env;
-            }
-            else {
-                // no environment, just do black
-                pathSegments[idx].color = glm::vec3(0.0f);
+                pathSegments[idx].radiance +=
+                    pathSegments[idx].color * envIntensity * env;
             }
 			pathSegments[idx].remainingBounces = 0;
         }
@@ -620,7 +778,7 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
     if (index < nPaths)
     {
         PathSegment iterationPath = iterationPaths[index];
-        image[iterationPath.pixelIndex] += iterationPath.color;
+        image[iterationPath.pixelIndex] += iterationPath.radiance;
     }
 }
 
@@ -739,7 +897,13 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_textures,
             dev_texels,
             hst_scene->envTexId,
-            hst_scene->envIntensity
+            hst_scene->envIntensity,
+            dev_lightIds,
+            (int)hst_scene->lightIds.size(),
+            dev_geoms,
+            (int)hst_scene->geoms.size(),
+            dev_triangles,
+            dev_bvhNodes
         );
 		checkCUDAError("shadeMaterial");
 

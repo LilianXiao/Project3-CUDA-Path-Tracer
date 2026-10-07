@@ -21,5 +21,6 @@ public:
     int envTexId = -1;
     float envIntensity = 1.f;
     std::vector<BVHNode> bvhNodes;
+    std::vector<int> lightIds;
     RenderState state;
 };

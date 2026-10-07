@@ -3,7 +3,7 @@
         "light": {
             "TYPE": "Emitting",
             "RGB": [ 1.0, 1.0, 1.0 ],
-            "EMITTANCE": 8.0
+            "EMITTANCE":60.0
         },
         "diffuse_white": {
             "TYPE": "Diffuse",
@@ -27,7 +27,12 @@
             "RGB": [ 0.99, 0.98, 0.98 ],
             "ROUGHNESS": 0.0
         },
-        "subsurface_offwhite": {
+        "glass": {
+            "TYPE": "Glass",
+            "RGB": [ 0.99, 0.98, 0.98 ],
+            "IOR": 1.50
+        },
+        "ss_offwhite": {
             "TYPE": "Subsurface",
             "RGB": [ 0.99, 0.90, 0.80 ],
             "SSS_DENSITY": 40.0
@@ -54,55 +59,63 @@
     },
     "Camera":
     {
-        "RES":[800,800],
+        "RES":[1200,1200],
         "FOVY":50.0,
         "ITERATIONS":5000,
         "DEPTH":256,
         "FILE":"cornell",
-        "EYE":[0.0,5.0,10.5],
-        "LOOKAT": [ 1.0, 4.0, 0.0 ],
+        "EYE":[0.0,4.0,5.0],
+        "LOOKAT": [ 0.0, 4.0, 0.0 ],
         "UP": [ 0.0, 1.0, 0.0 ],
-        "LENS_RADIUS": 0.0,
-        "FOCAL_DISTANCE": 10.0
+        "LENS_RADIUS": 0.1,
+        "FOCAL_DISTANCE": 5.0
     },
     "Objects": [
         {
             "TYPE": "cube",
             "MATERIAL": "light",
-            "TRANS": [ 0.0, 10.0, 0.0 ],
+            "TRANS": [ 0.0, 5.0, -2.0 ],
             "ROTAT": [ 0.0, 0.0, 0.0 ],
-            "SCALE": [ 3.0, 0.3, 3.0 ]
+            "SCALE": [ 1.0, 1.0, 1.0 ]
         },
         {
             "TYPE": "mesh",
             "FILE": "objs/hornet_mask.obj",
-            "MATERIAL": "subsurface_offwhite",
-            "TRANS": [ 1.0, 4.0, 0.0 ],
-            "ROTAT": [ 0.0, -45.0, 0.0 ],
+            "MATERIAL": "ss_offwhite",
+            "TRANS": [ 0.0, 4.0, 0.0 ],
+            "ROTAT": [ 0.0, 0.0, 0.0 ],
             "SCALE": [ 1.0, 1.0, 1.0 ]
         },
         {
             "TYPE": "mesh",
             "FILE": "objs/hornet_cloak.obj",
             "MATERIAL": "cloak_mat",
-            "TRANS": [ 1.0, 4.0, 0.0 ],
-            "ROTAT": [ 0.0, -45.0, 0.0 ],
+            "TRANS": [ 0.0, 4.0, 0.0 ],
+            "ROTAT": [ 0.0, 0.0, 0.0 ],
             "SCALE": [ 1.0, 1.0, 1.0 ]
         },
         {
             "TYPE": "mesh",
             "FILE": "objs/hornet_body.obj",
             "MATERIAL": "specular_black",
-            "TRANS": [ 1.0, 4.0, 0.0 ],
-            "ROTAT": [ 0.0, -45.0, 0.0 ],
+            "TRANS": [ 0.0, 4.0, 0.0 ],
+            "ROTAT": [ 0.0, 0.0, 0.0 ],
             "SCALE": [ 1.0, 1.0, 1.0 ]
         },
         {
             "TYPE": "mesh",
             "FILE": "objs/hornet_needle.obj",
             "MATERIAL": "needle_mat",
-            "TRANS": [ 1.0, 4.0, 0.0 ],
-            "ROTAT": [ 0.0, -45.0, 0.0 ],
+            "TRANS": [ 0.0, 4.0, 0.0 ],
+            "ROTAT": [ 0.0, 0.0, 0.0 ],
+            "SCALE": [ 1.0, 1.0, 1.0 ]
+        },
+        {
+            "TYPE": "mesh",
+            "FILE": "objs/stars.obj",
+            "MATERIAL": "glass",
+            "TRANS": [ 0.0, 4.0, 0.0 ],
+            "ROTAT": [ 0.0, 0.0, 0.0 ],
             "SCALE": [ 1.0, 1.0, 1.0 ]
         }
     ]

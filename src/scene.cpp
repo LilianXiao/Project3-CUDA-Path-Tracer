@@ -273,6 +273,16 @@ void Scene::loadFromJSON(const std::string& jsonName)
         newGeom.inverseTransform = glm::inverse(newGeom.transform);
         newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
 
+        // for cube case
+        newGeom.area = 2.f * (newGeom.scale.x * newGeom.scale.y
+            + newGeom.scale.y * newGeom.scale.z
+            + newGeom.scale.x * newGeom.scale.z
+            );
+
+        if (type == "cube" && materials[newGeom.materialid].emittance > 0.f) {
+            lightIds.push_back((int)geoms.size());
+        }
+
         // load mesh only after matrices exist so we can transform everything
         if (type == "mesh")
         {

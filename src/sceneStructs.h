@@ -74,6 +74,8 @@ struct Geom
 	glm::vec3 bboxMax;
     // BVH
     int bvhRoot;
+    // MIS
+    float area;
 };
 
 struct Material
@@ -139,6 +141,8 @@ struct PathSegment
 {
     Ray ray;
     glm::vec3 color;
+    glm::vec3 radiance;
+    float lastPdf;
     int pixelIndex;
     int remainingBounces;
     // ** For subsurface scattering
@@ -156,5 +160,6 @@ struct ShadeableIntersection
   glm::vec3 tangent;
   glm::vec2 uv;
   int materialId;
+  int geomId;
   bool outside;
 };
