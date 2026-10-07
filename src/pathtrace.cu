@@ -205,6 +205,15 @@ void pathtraceReset() {
 }
 
 /**
+* Helper for generating lens rays w/ depth of field stuff
+*/
+__host__ __device__ inline glm::vec2 sampleDisk(float u1, float u2) {
+    float r = sqrtf(u1);
+    float theta = TWO_PI * u2;
+    return glm::vec2(r * cosf(theta), r * sinf(theta));
+}
+
+/**
 * Generate PathSegments with rays from the camera through the screen into the
 * scene, which is the first bounce of rays.
 *
@@ -225,18 +234,37 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.color = glm::vec3(1.0f, 1.0f, 1.0f);
 
         // implement antialiasing by jittering the ray
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
+        thrust::uniform_real_distribution<float> u01(0, 1);
+
         float jx = 0.f;
         float jy = 0.f;
 #if ANTIALIASING
-		thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
-		thrust::uniform_real_distribution<float> u01(0, 1);
 		jx = u01(rng) - 0.5f;
 		jy = u01(rng) - 0.5f;
 #endif
-        segment.ray.direction = glm::normalize(cam.view
+        glm::vec3 dir = glm::normalize(cam.view
             - cam.right * cam.pixelLength.x * ((float)x + jx - (float)cam.resolution.x * 0.5f)
             - cam.up * cam.pixelLength.y * ((float)y + jy - (float)cam.resolution.y * 0.5f)
         );
+
+        segment.ray.origin = cam.position;
+        segment.ray.direction = dir;
+
+        // update this part for physically-based depth of field impl
+        if (cam.lensRadius > 0.f) {
+            // pixel pinhole ray -> focus plane
+            float ft = cam.focalDistance / glm::dot(dir, cam.view);
+            glm::vec3 pFocus = cam.position + dir * ft;
+            // get random point on lens
+            glm::vec2 lens = cam.lensRadius * sampleDisk(u01(rng), u01(rng));
+            glm::vec3 pLens = cam.position
+                + glm::normalize(cam.right) * lens.x
+                + glm::normalize(cam.up) * lens.y;
+
+            segment.ray.origin = pLens;
+            segment.ray.direction = glm::normalize(pFocus - pLens);
+        }
 
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;

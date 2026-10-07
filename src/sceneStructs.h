@@ -114,6 +114,11 @@ struct Camera
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+    // a thin lens camera
+    // at 0 radius, it's a pinhole and there is no blurring
+    float lensRadius;
+    // this is the distance along the view dir to the "sharp" plane
+    float focalDistance;
 };
 
 struct RenderState
