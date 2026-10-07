@@ -145,6 +145,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
         newMaterial.noiseScale = 1.f;
         newMaterial.warpStrength = 1.f;
         newMaterial.warpFreq = 1.f;
+        newMaterial.sssDensity = 0.f;
 
         // handle materials loading differently
         if (p["TYPE"] == "Diffuse")
@@ -176,6 +177,11 @@ void Scene::loadFromJSON(const std::string& jsonName)
             newMaterial.hasReflective = 1.f;
             newMaterial.hasRefractive = 1.f;
             newMaterial.indexOfRefraction = p["IOR"];
+        }
+        else if (p["TYPE"] == "Subsurface") {
+            const auto& col = p["RGB"];
+            newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.sssDensity = p["SSS_DENSITY"];
         }
 
         if (p.contains("TEXTURE")) {

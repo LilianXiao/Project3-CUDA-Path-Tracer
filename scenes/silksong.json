@@ -24,35 +24,28 @@
         },
         "specular_white": {
             "TYPE": "Specular",
-            "RGB": [ 0.98, 0.98, 0.98 ],
+            "RGB": [ 0.99, 0.98, 0.98 ],
             "ROUGHNESS": 0.0
         },
-        "wahoo_mat": {
-            "TYPE": "Diffuse",
-            "RGB": [ 0.95, 0.95, 0.95 ],
-            "TEXTURE": "objs/wahoo.png",
-            "BUMP": "objs/wahoo_bump.png",
-            "BUMP_STRENGTH": 1.5
+        "subsurface_offwhite": {
+            "TYPE": "Subsurface",
+            "RGB": [ 0.99, 0.90, 0.80 ],
+            "SSS_DENSITY": 40.0
         },
-        "voronoisy": {
+        "cloak_mat": {
             "TYPE": "Diffuse",
-            "RGB": [ 0.32, 0.745, 1.0 ],
-            "NOISE": "voronoi",
-            "NOISE_SCALE": 4
+            "RGB": [ 1.0, 1.0, 1.0 ],
+            "TEXTURE": "objs/CloakColoring.png",
+            "BUMP": "objs/ClothTex.png",
+            "BUMP_STRENGTH": 2.5
         },
-        "fbmnoisy": {
-            "TYPE": "Diffuse",
-            "RGB": [ 1.0, 0.733, 0.322 ],
-            "NOISE": "fbm",
-            "NOISE_SCALE": 3
-        },
-        "fbmvoronoi": {
-            "TYPE": "Diffuse",
-            "RGB": [ 1.0, 0.518, 0.750 ],
-            "NOISE": "fbm voronoi",
-            "NOISE_SCALE": 2,
-            "WARP_STRENGTH": 5.0,
-            "WARP_FREQUENCY": 3.0
+        "needle_mat": {
+            "TYPE": "Specular",
+            "RGB": [ 1.0, 1.0, 1.0 ],
+            "IOR": 1.3,
+            "TEXTURE": "objs/NeedleTex.png",
+            "BUMP": "objs/NeedleTex.png",
+            "BUMP_STRENGTH": 2.5
         }
     },
     "Environment": {
@@ -64,20 +57,26 @@
         "RES":[800,800],
         "FOVY":50.0,
         "ITERATIONS":5000,
-        "DEPTH":8,
+        "DEPTH":256,
         "FILE":"cornell",
         "EYE":[0.0,5.0,10.5],
-        "LOOKAT":[0.0,5.0,0.0],
+        "LOOKAT": [ 1.0, 4.0, 0.0 ],
         "UP": [ 0.0, 1.0, 0.0 ],
-        "LENS_RADIUS": 0.2,
-        "FOCAL_DISTANCE": 6.0
+        "LENS_RADIUS": 0.0,
+        "FOCAL_DISTANCE": 10.0
     },
-    "Objects":
-    [
+    "Objects": [
+        {
+            "TYPE": "cube",
+            "MATERIAL": "light",
+            "TRANS": [ 0.0, 10.0, 0.0 ],
+            "ROTAT": [ 0.0, 0.0, 0.0 ],
+            "SCALE": [ 3.0, 0.3, 3.0 ]
+        },
         {
             "TYPE": "mesh",
             "FILE": "objs/hornet_mask.obj",
-            "MATERIAL": "diffuse_white",
+            "MATERIAL": "subsurface_offwhite",
             "TRANS": [ 1.0, 4.0, 0.0 ],
             "ROTAT": [ 0.0, -45.0, 0.0 ],
             "SCALE": [ 1.0, 1.0, 1.0 ]
@@ -85,7 +84,7 @@
         {
             "TYPE": "mesh",
             "FILE": "objs/hornet_cloak.obj",
-            "MATERIAL": "diffuse_red",
+            "MATERIAL": "cloak_mat",
             "TRANS": [ 1.0, 4.0, 0.0 ],
             "ROTAT": [ 0.0, -45.0, 0.0 ],
             "SCALE": [ 1.0, 1.0, 1.0 ]
@@ -101,7 +100,7 @@
         {
             "TYPE": "mesh",
             "FILE": "objs/hornet_needle.obj",
-            "MATERIAL": "specular_white",
+            "MATERIAL": "needle_mat",
             "TRANS": [ 1.0, 4.0, 0.0 ],
             "ROTAT": [ 0.0, -45.0, 0.0 ],
             "SCALE": [ 1.0, 1.0, 1.0 ]

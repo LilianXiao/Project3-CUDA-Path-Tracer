@@ -102,6 +102,11 @@ struct Material
     // at 0, pure voronoi
     float warpStrength;
     float warpFreq;
+
+    // ** For subsurface scattering
+    // 0: none
+    // increasing => more opaque
+    float sssDensity;
 };
 
 struct Camera
@@ -136,6 +141,9 @@ struct PathSegment
     glm::vec3 color;
     int pixelIndex;
     int remainingBounces;
+    // ** For subsurface scattering
+    // -1 if path NOT in a sss object
+    int mediumMaterial;
 };
 
 // Use with a corresponding PathSegment to do:

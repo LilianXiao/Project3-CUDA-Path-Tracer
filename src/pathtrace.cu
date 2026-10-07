@@ -268,6 +268,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
+        segment.mediumMaterial = -1;
     }
 }
 
@@ -382,9 +383,9 @@ __global__ void shadeFakeMaterial(
         ShadeableIntersection intersection = shadeableIntersections[idx];
         if (intersection.t > 0.0f) // if the intersection exists...
         {
-          // Set up the RNG
-          // LOOK: this is how you use thrust's RNG! Please look at
-          // makeSeededRandomEngine as well.
+            // Set up the RNG
+            // LOOK: this is how you use thrust's RNG! Please look at
+            // makeSeededRandomEngine as well.
             thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
             thrust::uniform_real_distribution<float> u01(0, 1);
 
@@ -436,6 +437,75 @@ __global__ void shadeMaterial(
         }
 
         ShadeableIntersection intersection = shadeableIntersections[idx];
+
+        // Random walk SSS
+        PathSegment& seg = pathSegments[idx];
+        if (seg.mediumMaterial >= 0) {
+            const Material& med = materials[seg.mediumMaterial];
+            thrust::default_random_engine rng = makeSeededRandomEngine(
+                iter,
+                seg.pixelIndex,
+                depth
+            );
+            thrust::uniform_real_distribution<float> u01(0, 1);
+
+            // dist to next scattering event
+            // Distribution on the probability of going a distance without hitting a particle
+            // random distance from this distribution
+            // higher density => smaller steps
+            float dist = -logf(1.f - u01(rng)) / med.sssDensity;
+            // if the step is shorter than wall distance, a particle is hit (scatters)
+            // otherwise, the path reaches the wall and exits
+            bool reachesSurface = (intersection.t > 0.f) && (dist >= intersection.t);
+
+            if (!reachesSurface) {
+                // internal scattering
+                // move origin by the sampled distance, then pick a new uniform random direction
+                seg.ray.origin += seg.ray.direction * dist;
+                float z = 1.f - 2.f * u01(rng);
+                float r = sqrtf(glm::max(0.f, 1.f - z * z));
+                float phi = TWO_PI * u01(rng);
+
+                seg.ray.direction = glm::vec3(r * cosf(phi), r * sinf(phi), z);
+                // tint
+                seg.color *= med.color;
+
+                // Russian Roulette to randomly stop dimmer paths
+                // Suppose that a lot of scattering events occur, but there are a lot of paths that
+                // are no longer really useful.  This will end these paths randomly using survival probability
+                // based on the path's brightest color channel
+                float survive = glm::min(
+                    1.f,
+                    glm::max(seg.color.x, glm::max(seg.color.y, seg.color.z))
+                );
+
+                if (u01(rng) > survive) {
+                    seg.color = glm::vec3(0.f);
+                    seg.remainingBounces = 0;
+                    return;
+                }
+
+                seg.color /= survive;
+            }
+            else {
+                // leave diffuse when reach boundary
+                glm::vec3 p = seg.ray.origin + seg.ray.direction * intersection.t;
+                glm::vec3 outward = -intersection.surfaceNormal;
+
+                seg.ray.direction = calculateRandomDirectionInHemisphere(outward, rng);
+                seg.ray.origin = p + outward * 1e-3f;
+                seg.mediumMaterial = -1;
+            }
+
+            seg.remainingBounces--;
+            if (seg.remainingBounces <= 0) {
+                seg.remainingBounces = 0;
+                seg.color = glm::vec3(0.f);
+            }
+
+            return;
+        }
+
         if (intersection.t > 0.0f)
         {
             Material material = materials[intersection.materialId];
@@ -500,8 +570,17 @@ __global__ void shadeMaterial(
                     }
                 }
                 
-                scatterRay(pathSegments[idx], isectP, N, intersection.outside, material, rng);
-                
+                if (material.sssDensity > 0.f && intersection.outside) {
+                    glm::vec3 inward = -N;
+                    pathSegments[idx].ray.direction = calculateRandomDirectionInHemisphere(inward, rng);
+                    pathSegments[idx].ray.origin = isectP + inward * 1e-3f;
+                    pathSegments[idx].mediumMaterial = intersection.materialId;
+                    pathSegments[idx].remainingBounces--;
+                }
+                else {
+                    scatterRay(pathSegments[idx], isectP, N, intersection.outside, material, rng);
+                }
+                                
                 // make sure paths that never hit emitters don't contribute light
                 if (pathSegments[idx].remainingBounces == 0) {
                     pathSegments[idx].color = glm::vec3(0.f);
