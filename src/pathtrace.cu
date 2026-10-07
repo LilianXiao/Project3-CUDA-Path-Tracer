@@ -107,6 +107,8 @@ static ShadeableIntersection* dev_intersections = NULL;
 static Triangle* dev_triangles = NULL;
 static Texture* dev_textures = NULL;
 static glm::vec3* dev_texels = NULL;
+// buffer for BVH nodes
+static BVHNode* dev_bvhNodes = NULL;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
@@ -160,6 +162,14 @@ void pathtraceInit(Scene* scene)
             cudaMemcpyHostToDevice);
     }
 
+    if (!scene->bvhNodes.empty()) {
+        cudaMalloc(&dev_bvhNodes, scene->bvhNodes.size() * sizeof(BVHNode));
+        cudaMemcpy(dev_bvhNodes,
+            scene->bvhNodes.data(), 
+            scene->bvhNodes.size() * sizeof(BVHNode), 
+            cudaMemcpyHostToDevice);
+    }
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -177,6 +187,8 @@ void pathtraceFree()
     dev_textures = NULL;
     cudaFree(dev_texels);
     dev_texels = NULL;
+    cudaFree(dev_bvhNodes);
+    dev_bvhNodes = NULL;
 
     checkCUDAError("pathtraceFree");
 }
@@ -237,6 +249,7 @@ __global__ void computeIntersections(
     Geom* geoms,
     int geoms_size,
     Triangle* triangles,
+    BVHNode* bvhNodes,
     ShadeableIntersection* intersections)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -278,9 +291,8 @@ __global__ void computeIntersections(
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             } else if (geom.type == MESH) {
 				int triIdx;
-				t = triangleIntersectionTest(geom, triangles, pathSegment.ray, tmp_intersect, tmp_normal, tmp_tangent, tmp_uv, outside, triIdx);
+				t = triangleIntersectionTest(geom, triangles, bvhNodes, pathSegment.ray, tmp_intersect, tmp_normal, tmp_tangent, tmp_uv, outside, triIdx);
 			}
-            // add more intersection tests as necessary!
 
             // Compute the minimum t from the intersection tests to determine what
             // scene geometry object was hit first.
@@ -451,7 +463,7 @@ __global__ void shadeMaterial(
                     }
                 }
                 
-                scatterRay(pathSegments[idx], isectP, intersection.surfaceNormal, material, rng);
+                scatterRay(pathSegments[idx], isectP, N, material, rng);
                 
                 // make sure paths that never hit emitters don't contribute light
                 if (pathSegments[idx].remainingBounces == 0) {
@@ -559,6 +571,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_geoms,
             hst_scene->geoms.size(),
             dev_triangles,
+            dev_bvhNodes,
             dev_intersections
         );
         checkCUDAError("trace one bounce");

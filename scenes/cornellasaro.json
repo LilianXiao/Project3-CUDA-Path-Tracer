@@ -107,11 +107,11 @@
         },
         {
             "TYPE": "mesh",
-            "FILE": "objs/cube.obj",
-            "MATERIAL": "fbmvoronoi",
-            "TRANS": [ 2.0, 4.0, 0.0 ],
+            "FILE": "objs/wahoo.obj",
+            "MATERIAL": "wahoo_mat",
+            "TRANS": [ 1.0, 4.0, 0.0 ],
             "ROTAT": [ 0.0, -45.0, 0.0 ],
-            "SCALE": [ 4.0, 4.0, 4.0 ]
+            "SCALE": [ 1.0, 1.0, 1.0 ]
         }
     ]
 }

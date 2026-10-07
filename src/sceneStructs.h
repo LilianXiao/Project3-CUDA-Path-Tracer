@@ -8,12 +8,24 @@
 #include <vector>
 
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
+#define BVH_LEAF_SIZE 4
+#define BVH_STACK_SIZE 32
+#define USE_BVH 1
 
 enum GeomType
 {
     SPHERE,
     CUBE,
     MESH
+};
+
+struct BVHNode {
+    int left; // child node index (leaf is -1)
+    int right;
+    int triStart;
+    int numTris;
+    glm::vec3 bboxMin;
+    glm::vec3 bboxMax;
 };
 
 struct Triangle
@@ -60,6 +72,8 @@ struct Geom
     int numTris;
     glm::vec3 bboxMin;
 	glm::vec3 bboxMax;
+    // BVH
+    int bvhRoot;
 };
 
 struct Material

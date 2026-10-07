@@ -167,9 +167,48 @@ __host__ __device__ float mollerTrumbore(
     return t;
 }
 
+// "Slab" test for BVH: return entry distance, reject any boxes beyond current closest hit
+// Recall: the box test is composed of three sections (region between two x planes, y planes, z planes respectively)
+// ray inside box when it's in all three regions (so test to find the extent of ray inside each region and test if there's overlap)
+__host__ __device__ inline bool aabbHit(
+    const glm::vec3& bMin,
+    const glm::vec3& bMax,
+    const Ray& r,
+    float tMax,
+    float& tEntry
+) {
+    glm::vec3 invDir = 1.f / r.direction;
+
+    // low plane and high plane
+    glm::vec3 t0 = (bMin - r.origin) * invDir;
+    glm::vec3 t1 = (bMax - r.origin) * invDir;
+
+    // distance when ray reaches certain plane
+    glm::vec3 tsm = glm::min(t0, t1);
+    glm::vec3 tbg = glm::max(t0, t1);
+
+    // suppose ray travels along negative axis; reaches high plane first
+    // this makes direction negligible
+    // tNear: most recent entry, tFar: earliest exit
+    float tNear = glm::max(glm::max(tsm.x, tsm.y), tsm.z);
+    float tFar = glm::min(glm::min(tbg.x, tbg.y), tbg.z);
+
+    // 1. ray leaves a region before entering another
+    // 2. entire box behind ray origin
+    // 3. box begins farther away than the closest found hit
+    if (tNear > tFar || tFar < 0.f || tNear > tMax) {
+        return false;
+    }
+
+    tEntry = glm::max(tNear, 0.f);
+
+    return true;
+}
+
 __host__ __device__ float triangleIntersectionTest(
     const Geom& mesh,
     const Triangle* triangles,
+    const BVHNode* nodes,
     const Ray& r,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,
@@ -180,6 +219,89 @@ __host__ __device__ float triangleIntersectionTest(
     // everything should already be in world space (this was done during loading)
     float tBest = FLT_MAX;
     triIdx = -1;
+
+#if USE_BVH
+    int stack[BVH_STACK_SIZE];
+    float tStack[BVH_STACK_SIZE];
+    int sp = 0;
+    float tRoot;
+    const BVHNode& root = nodes[mesh.bvhRoot];
+
+    if (!aabbHit(root.bboxMin, root.bboxMax, r, tBest, tRoot)) {
+        return -1.f;
+    }
+
+    stack[sp] = mesh.bvhRoot;
+    tStack[sp] = tRoot;
+    sp++;
+
+    while (sp > 0) {
+        // prevent stack overflow
+        if ((sp + 2) > BVH_STACK_SIZE) {
+            break;
+        }
+
+        sp--;
+        // closer hit found
+        if (tStack[sp] >= tBest) {
+            continue;
+        }
+        const BVHNode& node = nodes[stack[sp]];
+
+        if (node.left < 0) {
+            for (int i = node.triStart; i < node.triStart + node.numTris; ++i) {
+                glm::vec3 p;
+                glm::vec3 n;
+                glm::vec3 tan;
+                glm::vec2 uvs;
+                bool o;
+                float t = mollerTrumbore(triangles[i], r, p, n, tan, uvs, o);
+
+                if (t > 0.f && t < tBest) {
+                    tBest = t;
+                    intersectionPoint = p;
+                    normal = n;
+                    tangent = tan;
+                    uv = uvs;
+                    outside = o;
+                    triIdx = i;
+                }
+            }
+        }
+        else { // test children
+            float tL;
+            float tR;
+            const BVHNode& L = nodes[node.left];
+            const BVHNode& R = nodes[node.right];
+            bool hitL = aabbHit(L.bboxMin, L.bboxMax, r, tBest, tL);
+            bool hitR = aabbHit(R.bboxMin, R.bboxMax, r, tBest, tR);
+
+            if (hitL && hitR) {
+                bool leftNear = tL <= tR;
+                // do far child first
+                stack[sp] = leftNear ? node.right : node.left;
+                tStack[sp] = leftNear ? tR : tL;
+                sp++;
+                // the near child on top
+                stack[sp] = leftNear ? node.left : node.right;
+                tStack[sp] = leftNear ? tL : tR;
+                sp++;
+            }
+            else if (hitL) {
+                stack[sp] = node.left;
+                tStack[sp] = tL;
+                sp++;
+            }
+            else if (hitR) {
+                stack[sp] = node.right;
+                tStack[sp] = tR;
+                sp++;
+            }
+        }
+    }
+
+#else
+
     for (int i = mesh.triStart; i < mesh.triStart + mesh.numTris; ++i) {
         glm::vec3 p;
         glm::vec3 n;
@@ -197,6 +319,7 @@ __host__ __device__ float triangleIntersectionTest(
 			triIdx = i;
         }
 	}
-    
+#endif
+
 	return triIdx >= 0 ? tBest : -1.f;
 }

@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 #include <cfloat>
+#include <functional>
 
 using namespace std;
 using json = nlohmann::json;
@@ -61,6 +62,66 @@ int Scene::loadTexture(const std::string& texName) {
 	textures.push_back(tex);
 
     return (int)textures.size() - 1;
+}
+
+/**
+* This is a recursive BVH builder.  Recursive bvh picks a median split point for the axis
+* using a splitting heuristic.
+* Tris can then be sorted along this axis.
+* The resulting node is an interior node with left and right children equal to recursive calls
+* over the ranges start -> middle and middle -> end.
+*/
+int Scene::buildBVH(int start, int end) {
+    int nodeIdx = (int)bvhNodes.size();
+    bvhNodes.emplace_back();
+    glm::vec3 bMin(FLT_MAX);
+    glm::vec3 bMax(-FLT_MAX);
+
+    for (int i = start; i < end; ++i) {
+        const Triangle& tri = triangles[i];
+        bMin = glm::min(bMin, glm::min(tri.v0, glm::min(tri.v1, tri.v2)));
+        bMax = glm::max(bMax, glm::max(tri.v0, glm::max(tri.v1, tri.v2)));
+    }
+
+    int left = -1;
+    int right = -1;
+
+    if (end - start > BVH_LEAF_SIZE) {
+        glm::vec3 ext = bMax - bMin;
+        int axis = 0;
+        if (ext.y > ext[axis]) {
+            axis = 1;
+        }
+        if (ext.z > ext[axis]) {
+            axis = 2;
+        }
+
+        // median split needs triangles to be partitioned about the middle (not fully ordered)
+        // this lets each level be in linear time
+        // then, node reference will be taken after recursive calls have been made
+        int mid = start + (end - start) / 2;
+        std::nth_element(
+            triangles.begin() + start,
+            triangles.begin() + mid,
+            triangles.begin() + end,
+            [axis](const Triangle& a, const Triangle& b) {
+            return a.v0[axis] + a.v1[axis] + a.v2[axis]
+                < b.v0[axis] + b.v1[axis] + b.v2[axis];
+            }
+        );
+
+        left = buildBVH(start, mid);
+        right = buildBVH(mid, end);
+    }
+
+    BVHNode& node = bvhNodes[nodeIdx];
+    node.bboxMin = bMin;
+    node.bboxMax = bMax;
+    node.left = left;
+    node.right = right;
+    node.triStart = start;
+    node.numTris = (left < 0) ? end - start : 0;
+    return nodeIdx;
 }
 
 void Scene::loadFromJSON(const std::string& jsonName)
@@ -322,4 +383,13 @@ void Scene::loadMeshFromOBJ(const std::string& objName, Geom& geom) {
     }
 
 	geom.numTris = (int)triangles.size() - geom.triStart;
+    geom.bvhRoot = buildBVH(geom.triStart, geom.triStart + geom.numTris);
+
+    // show the tree depth for debugging purposes
+    std::function<int(int)> depthOf = [&](int i) {
+        const BVHNode& n = bvhNodes[i];
+        return n.left < 0 ? 1 : 1 + std::max(depthOf(n.left), depthOf(n.right));
+        };
+    std::cout << geom.numTris << " triangles, BVH depth " << depthOf(geom.bvhRoot)
+        << ", " << bvhNodes.size() << " nodes total" << std::endl;
 }

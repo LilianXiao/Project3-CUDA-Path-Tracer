@@ -101,6 +101,7 @@ __host__ __device__ float mollerTrumbore(
 __host__ __device__ float triangleIntersectionTest(
     const Geom& mesh,
     const Triangle* triangles,
+    const BVHNode* nodes,
     const Ray& r,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,

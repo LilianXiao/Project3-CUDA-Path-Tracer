@@ -9,6 +9,7 @@ private:
     void loadFromJSON(const std::string& jsonName);
 	void loadMeshFromOBJ(const std::string& objName, Geom& geom);
 	int loadTexture(const std::string& texName);
+    int buildBVH(int start, int end);
 public:
     Scene(std::string filename);
 
@@ -17,5 +18,6 @@ public:
     std::vector<Triangle> triangles;
 	std::vector<Texture> textures;
 	std::vector<glm::vec3> texels;
+    std::vector<BVHNode> bvhNodes;
     RenderState state;
 };
