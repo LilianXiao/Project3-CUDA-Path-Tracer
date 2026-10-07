@@ -143,4 +143,5 @@ struct ShadeableIntersection
   glm::vec3 tangent;
   glm::vec2 uv;
   int materialId;
+  bool outside;
 };

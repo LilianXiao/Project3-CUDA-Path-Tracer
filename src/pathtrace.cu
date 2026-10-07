@@ -271,6 +271,7 @@ __global__ void computeIntersections(
         glm::vec3 tmp_normal;
         glm::vec3 tmp_tangent;
         glm::vec2 tmp_uv;
+        bool tmp_outside = true;
 
         // naive parse through global geoms
 
@@ -284,14 +285,14 @@ __global__ void computeIntersections(
 
             if (geom.type == CUBE)
             {
-                t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, tmp_outside);
             }
             else if (geom.type == SPHERE)
             {
-                t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, tmp_outside);
             } else if (geom.type == MESH) {
 				int triIdx;
-				t = triangleIntersectionTest(geom, triangles, bvhNodes, pathSegment.ray, tmp_intersect, tmp_normal, tmp_tangent, tmp_uv, outside, triIdx);
+				t = triangleIntersectionTest(geom, triangles, bvhNodes, pathSegment.ray, tmp_intersect, tmp_normal, tmp_tangent, tmp_uv, tmp_outside, triIdx);
 			}
 
             // Compute the minimum t from the intersection tests to determine what
@@ -304,6 +305,7 @@ __global__ void computeIntersections(
                 normal = tmp_normal;
                 tangent = tmp_tangent;
                 uv = tmp_uv;
+                outside = tmp_outside;
             }
         }
 
@@ -321,6 +323,7 @@ __global__ void computeIntersections(
             intersections[path_index].surfaceNormal = normal;
 			intersections[path_index].tangent = tangent;
 			intersections[path_index].uv = uv;
+            intersections[path_index].outside = outside;
         }
     }
 }
@@ -463,7 +466,7 @@ __global__ void shadeMaterial(
                     }
                 }
                 
-                scatterRay(pathSegments[idx], isectP, N, material, rng);
+                scatterRay(pathSegments[idx], isectP, N, intersection.outside, material, rng);
                 
                 // make sure paths that never hit emitters don't contribute light
                 if (pathSegments[idx].remainingBounces == 0) {
