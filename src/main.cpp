@@ -404,8 +404,12 @@ void saveImage()
         for (int y = 0; y < height; y++)
         {
             int index = x + (y * width);
-            glm::vec3 pix = renderState->image[index];
-            img.setPixel(width - 1 - x, y, glm::vec3(pix) / samples);
+
+            // ** tonemapping changes here as well
+            glm::vec3 pix = renderState->image[index] / (float)samples;
+            pix = pix / (pix + glm::vec3(1.f));
+            pix = glm::pow(pix, glm::vec3(1.f / 2.2f));
+            img.setPixel(width - 1 - x, y, pix);
         }
     }
 

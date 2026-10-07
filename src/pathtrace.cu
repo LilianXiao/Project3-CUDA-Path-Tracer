@@ -64,12 +64,16 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm
     if (x < resolution.x && y < resolution.y)
     {
         int index = x + (y * resolution.x);
-        glm::vec3 pix = image[index];
+
+        // ** Here I do a little tone mapping to help the hdri maps
+        glm::vec3 pix = image[index] / (float)iter;
+        pix = pix / (pix + glm::vec3(1.f));
+        pix = glm::pow(pix, glm::vec3(1.f / 2.2f));
 
         glm::ivec3 color;
-        color.x = glm::clamp((int)(pix.x / iter * 255.0), 0, 255);
-        color.y = glm::clamp((int)(pix.y / iter * 255.0), 0, 255);
-        color.z = glm::clamp((int)(pix.z / iter * 255.0), 0, 255);
+        color.x = glm::clamp((int)(pix.x * 255.0), 0, 255);
+        color.y = glm::clamp((int)(pix.y * 255.0), 0, 255);
+        color.z = glm::clamp((int)(pix.z * 255.0), 0, 255);
 
         // Each thread writes one pixel location in the texture (textel)
         pbo[index].w = 0;
@@ -391,7 +395,9 @@ __global__ void shadeMaterial(
     PathSegment* pathSegments,
     Material* materials, 
     Texture* textures,
-    glm::vec3* texels)
+    glm::vec3* texels,
+    int envTexId,
+    float envIntensity)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
@@ -479,7 +485,21 @@ __global__ void shadeMaterial(
             // This can be useful for post-processing and image compositing.
         }
         else {
-            pathSegments[idx].color = glm::vec3(0.0f);
+            // Add environment illumination support
+            if (envTexId >= 0) {
+                glm::vec3 env = sampleEnvironment(
+                    textures[envTexId],
+                    texels,
+                    pathSegments[idx].ray.direction
+                );
+                // clamp to remove most fireflies
+                env = glm::min(env, glm::vec3(20.f));
+                pathSegments[idx].color *= envIntensity * env;
+            }
+            else {
+                // no environment, just do black
+                pathSegments[idx].color = glm::vec3(0.0f);
+            }
 			pathSegments[idx].remainingBounces = 0;
         }
     }
@@ -610,7 +630,9 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_paths,
             dev_materials, 
             dev_textures,
-            dev_texels
+            dev_texels,
+            hst_scene->envTexId,
+            hst_scene->envIntensity
         );
 		checkCUDAError("shadeMaterial");
 

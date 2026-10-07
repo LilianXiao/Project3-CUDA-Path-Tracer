@@ -59,3 +59,9 @@ __host__ __device__ glm::vec3 sampleTexture(
     const glm::vec3* texels,
     glm::vec2 uv
 );
+
+__host__ __device__ glm::vec3 sampleEnvironment(
+    const Texture& env,
+    const glm::vec3* texels,
+    glm::vec3 dir
+);

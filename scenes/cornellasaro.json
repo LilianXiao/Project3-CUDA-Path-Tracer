@@ -27,7 +27,7 @@
             "RGB": [ 0.95, 0.95, 0.95 ],
             "TEXTURE": "objs/wahoo.png",
             "BUMP": "objs/wahoo_bump.png",
-            "BUMP_STRENGTH": 1.5
+            "BUMP_STRENGTH": 0
         },
         "voronoisy": {
             "TYPE": "Diffuse",

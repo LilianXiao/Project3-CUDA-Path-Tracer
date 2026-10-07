@@ -155,9 +155,15 @@ __host__ __device__ float mollerTrumbore(
 
 	intersectionPoint = r.origin + t * r.direction;
     normal = glm::normalize((1.f - u - v) * tri.n0 + u * tri.n1 + v * tri.n2);
-    outside = glm::dot(normal, r.direction) < 0.f;
+
+    // try to improve shading at glancing angles (noticeable for thin meshes, where the backside will get oversaturated)
+    glm::vec3 geoN = glm::normalize(glm::cross(e1, e2));
+    outside = glm::dot(geoN, r.direction) < 0.f;
     if (!outside) {
-		normal = -normal;
+        geoN = -geoN;
+    }
+    if (glm::dot(normal, geoN) < 0.f) {
+        normal = -normal;
     }
 
     // use barycentric interpolation for uvs

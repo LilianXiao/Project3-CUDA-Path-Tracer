@@ -135,3 +135,14 @@ __host__ __device__ glm::vec3 sampleTexture(
 
     return texels[tex.offset + y * tex.width + x];
 }
+
+__host__ __device__ glm::vec3 sampleEnvironment(
+    const Texture& env,
+    const glm::vec3* texels,
+    glm::vec3 dir
+) {
+    float u = atan2f(dir.z, dir.x) / TWO_PI + 0.5f;
+    float v = 0.5f + asinf(glm::clamp(dir.y, -1.f, 1.f)) / PI;
+
+    return sampleTexture(env, texels, glm::vec2(u, v));
+}

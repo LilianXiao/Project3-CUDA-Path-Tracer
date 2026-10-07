@@ -217,8 +217,22 @@ void Scene::loadFromJSON(const std::string& jsonName)
             newMaterial.warpFreq = p["WARP_FREQUENCY"];
         }
 
+        // to prevent colors from washing out, I'm converting them to linear
+        newMaterial.color = glm::pow(newMaterial.color, glm::vec3(2.2f));
+
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
+    }
+
+    // hdri env map support
+    if (data.contains("Environment")) {
+        const auto& env = data["Environment"];
+        const std::string file = env["FILE"];
+        envTexId = loadTexture(basePath + file);
+        
+        if (env.contains("INTENSITY")) {
+            envIntensity = env["INTENSITY"];
+        }
     }
     
     static const std::unordered_map<std::string, GeomType> geomType = {
