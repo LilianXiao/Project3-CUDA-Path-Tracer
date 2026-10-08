@@ -54,14 +54,14 @@ __host__ __device__ float schlickFresnel(
     float etaT
 );
 
-__host__ __device__ glm::vec3 sampleTexture(
+__host__ __device__ glm::vec4 sampleTexture(
     const Texture& tex,
-    const glm::vec3* texels,
+    const glm::vec4* texels,
     glm::vec2 uv
 );
 
 __host__ __device__ glm::vec3 sampleEnvironment(
     const Texture& env,
-    const glm::vec3* texels,
+    const glm::vec4* texels,
     glm::vec3 dir
 );

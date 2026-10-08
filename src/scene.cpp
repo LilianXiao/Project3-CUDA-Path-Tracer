@@ -41,7 +41,7 @@ int Scene::loadTexture(const std::string& texName) {
     int w;
     int h;
     int channels;
-	float* data = stbi_loadf(texName.c_str(), &w, &h, &channels, 3);
+	float* data = stbi_loadf(texName.c_str(), &w, &h, &channels, 4);
     if (!data) {
 		std::cerr << "std image: Failed to load texture!" << texName << std::endl;
         exit(-1);
@@ -51,11 +51,13 @@ int Scene::loadTexture(const std::string& texName) {
 		w, h, (int)texels.size()
     };
 
+    // do 4 channels for rgba
     for (int i = 0; i < w * h; ++i) {
         texels.emplace_back(
-            data[3 * i], 
-            data[3 * i + 1],
-            data[3 * i + 2]
+            data[4 * i], 
+            data[4 * i + 1],
+            data[4 * i + 2],
+            data[4 * i + 3]
         );
     }
     stbi_image_free(data);

@@ -63,7 +63,7 @@
         "FOVY":50.0,
         "ITERATIONS":5000,
         "DEPTH":256,
-        "FILE":"cornell",
+        "FILE":"silksong",
         "EYE":[0.0,4.0,5.0],
         "LOOKAT": [ 0.0, 4.0, 0.0 ],
         "UP": [ 0.0, 1.0, 0.0 ],

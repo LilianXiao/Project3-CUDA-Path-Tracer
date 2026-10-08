@@ -148,6 +148,9 @@ struct PathSegment
     // ** For subsurface scattering
     // -1 if path NOT in a sss object
     int mediumMaterial;
+    // light weighting requires "real" distance
+    // this is for transparent cases
+    float passDist;
 };
 
 // Use with a corresponding PathSegment to do:

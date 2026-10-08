@@ -123,9 +123,9 @@ __host__ __device__ void scatterRay(
     pathSegment.remainingBounces = glm::max(0, pathSegment.remainingBounces - 1);
 }
 
-__host__ __device__ glm::vec3 sampleTexture(
+__host__ __device__ glm::vec4 sampleTexture(
     const Texture& tex,
-    const glm::vec3* texels,
+    const glm::vec4* texels,
     glm::vec2 uv
 ) {
     // wrap uvs 0 -> 1
@@ -138,11 +138,11 @@ __host__ __device__ glm::vec3 sampleTexture(
 
 __host__ __device__ glm::vec3 sampleEnvironment(
     const Texture& env,
-    const glm::vec3* texels,
+    const glm::vec4* texels,
     glm::vec3 dir
 ) {
     float u = atan2f(dir.z, dir.x) / TWO_PI + 0.5f;
     float v = 0.5f + asinf(glm::clamp(dir.y, -1.f, 1.f)) / PI;
 
-    return sampleTexture(env, texels, glm::vec2(u, v));
+    return glm::vec3(sampleTexture(env, texels, glm::vec2(u, v)));
 }

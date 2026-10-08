@@ -111,7 +111,7 @@ static ShadeableIntersection* dev_intersections = NULL;
 // buffer for triangles
 static Triangle* dev_triangles = NULL;
 static Texture* dev_textures = NULL;
-static glm::vec3* dev_texels = NULL;
+static glm::vec4* dev_texels = NULL;
 // buffer for BVH nodes
 static BVHNode* dev_bvhNodes = NULL;
 // buffer for MIS
@@ -162,10 +162,10 @@ void pathtraceInit(Scene* scene)
     }
 
     if (!scene->texels.empty()) {
-        cudaMalloc(&dev_texels, scene->texels.size() * sizeof(glm::vec3));
+        cudaMalloc(&dev_texels, scene->texels.size() * sizeof(glm::vec4));
         cudaMemcpy(dev_texels,
             scene->texels.data(),
-            scene->texels.size() * sizeof(glm::vec3),
+            scene->texels.size() * sizeof(glm::vec4),
             cudaMemcpyHostToDevice);
     }
 
@@ -238,13 +238,13 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
-
     if (x < cam.resolution.x && y < cam.resolution.y) {
         int index = x + (y * cam.resolution.x);
         PathSegment& segment = pathSegments[index];
 
         segment.ray.origin = cam.position;
         segment.color = glm::vec3(1.0f, 1.0f, 1.0f);
+        segment.passDist = 0.f;
 
         // implement antialiasing by jittering the ray
         thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
@@ -285,6 +285,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 
         segment.radiance = glm::vec3(0.f);
         segment.lastPdf = -1.f;
+        segment.passDist = 0.f;
     }
 }
 
@@ -416,13 +417,18 @@ __host__ __device__ inline void sampleCube(
 * Helper: visibility test
 */
 __device__ bool isOccluded(
-    const Ray& r,
+    Ray r,
     float maxDist,
     const Geom* geoms,
     int geomCount,
     const Triangle* triangles,
-    const BVHNode* nodes
+    const BVHNode* nodes,
+    const Material* materials,
+    const Texture* textures,
+    const glm::vec4* texels,
+    thrust::default_random_engine& rng
 ) {
+    thrust::uniform_real_distribution<float> u01(0, 1);
     glm::vec3 p;
     glm::vec3 n;
     glm::vec3 tan;
@@ -430,27 +436,60 @@ __device__ bool isOccluded(
     bool o;
     int tri;
 
-    for (int i = 0; i < geomCount; ++i) {
-        const Geom& g = geoms[i];
-        float t = -1.f;
+    // updated since shadow rays need to account for alpha
+    for (int pass = 0; pass < 8; ++pass) {
+        float tBest = maxDist;
+        int hitGeom = -1;
+        glm::vec2 uvBest(0.f);
 
-        if (g.type == CUBE) {
-            t = boxIntersectionTest(g, r, p, n, o);
-        }
-        else if (g.type == SPHERE) {
-            t = sphereIntersectionTest(g, r, p, n, o);
-        }
-        else if (g.type == MESH) {
-            t = triangleIntersectionTest(
-                g, triangles, nodes, r, p, n, tan, uv, o, tri);
+        for (int i = 0; i < geomCount; ++i) {
+            const Geom& g = geoms[i];
+            float t = -1.f;
+            uv = glm::vec2(0.f);
+
+            if (g.type == CUBE) {
+                t = boxIntersectionTest(g, r, p, n, o);
+            }
+            else if (g.type == SPHERE) {
+                t = sphereIntersectionTest(g, r, p, n, o);
+            }
+            else if (g.type == MESH) {
+                t = triangleIntersectionTest(
+                    g, triangles, nodes, r, p, n, tan, uv, o, tri);
+            }
+
+            if (t > 0.f && t < maxDist) {
+                tBest = t;
+                hitGeom = i;
+                uvBest = uv;
+            }
         }
 
-        if (t > 0.f && t < maxDist) {
+        if (hitGeom < 0) {
+            return false;
+        }
+
+        const Material& m = materials[geoms[hitGeom].materialid];
+        float alpha = 1.f;
+
+        if (m.albedoTexId >= 0) {
+            alpha = sampleTexture(textures[m.albedoTexId], texels, uvBest).a;
+        }
+        
+        if (alpha >= 1.f || u01(rng) < alpha) {
             return true;
         }
-    }
 
-    return false;
+        // pass transparencies
+        float step = tBest + 1e-3f;
+        r.origin += r.direction * step;
+        maxDist -= step;
+
+        if (maxDist <= 0.f) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // LOOK: "fake" shader demonstrating what you might do with the info in
@@ -516,7 +555,7 @@ __global__ void shadeMaterial(
     PathSegment* pathSegments,
     Material* materials, 
     Texture* textures,
-    glm::vec3* texels,
+    glm::vec4* texels,
     int envTexId,
     float envIntensity,
     int* lightIds,
@@ -623,6 +662,9 @@ __global__ void shadeMaterial(
                         * intersection.t
                         / (hit.area * cosL * lightCount);
 
+                    float d = intersection.t + pathSegments[idx].passDist;
+                    pdfLight = d * d / (hit.area * cosL * lightCount);
+
                     w = pathSegments[idx].lastPdf
                         / (pathSegments[idx].lastPdf + pdfLight);
                 }
@@ -634,6 +676,7 @@ __global__ void shadeMaterial(
 				pathSegments[idx].remainingBounces = 0;
             }
             else {
+                float alpha = 1.f;
                 // need to use depth for seeding the rng, or else it will be the same random numbers every time
                 // in the case of sorting by material, idx will differ for same path segment
                 thrust::default_random_engine rng = makeSeededRandomEngine(iter, pathSegments[idx].pixelIndex, depth);
@@ -658,7 +701,20 @@ __global__ void shadeMaterial(
                     material.color *= glm::clamp(d, 0.f, 1.f);
                 }
                 else if (material.albedoTexId >= 0) { // otherwise look for file texture
-                    material.color = sampleTexture(textures[material.albedoTexId], texels, intersection.uv);
+                    glm::vec4 texel = sampleTexture(textures[material.albedoTexId], texels, intersection.uv);
+                    material.color = glm::vec3(texel);
+                    alpha = texel.a;
+                }
+                
+                // Handle texture opacity
+                if (alpha < 1.f) {
+                    thrust::uniform_real_distribution<float> u01(0, 1);
+                    if (u01(rng) >= alpha) {
+                        // neglect hit
+                        seg.ray.origin = isectP - intersection.surfaceNormal * 1e-3f;
+                        seg.passDist += intersection.t;
+                        return;
+                    }
                 }
 
                 glm::vec3 N = intersection.surfaceNormal;
@@ -712,7 +768,7 @@ __global__ void shadeMaterial(
                         shadow.origin = isectP + N * 1e-3f;
                         shadow.direction = wi;
 
-                        if (!isOccluded(shadow, dist - 2e-3f, geoms, geomCount, triangles, bvhNodes)) {
+                        if (!isOccluded(shadow, dist - 2e-3f, geoms, geomCount, triangles, bvhNodes, materials, textures, texels, rng)) {
                             float pdfLight = dist2 / (light.area * cosL * lightCount);
                             float pdfBsdf = cosS / PI;
                             float w = pdfLight / (pdfLight + pdfBsdf);

@@ -17,7 +17,7 @@ public:
     std::vector<Material> materials;
     std::vector<Triangle> triangles;
 	std::vector<Texture> textures;
-	std::vector<glm::vec3> texels;
+	std::vector<glm::vec4> texels;
     int envTexId = -1;
     float envIntensity = 1.f;
     std::vector<BVHNode> bvhNodes;
