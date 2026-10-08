@@ -225,6 +225,12 @@ __host__ __device__ float triangleIntersectionTest(
     // everything should already be in world space (this was done during loading)
     float tBest = FLT_MAX;
     triIdx = -1;
+#if BOUNDING_VOLUME_CULLING
+    float tBox;
+    if (!aabbHit(mesh.bboxMin, mesh.bboxMax, r, FLT_MAX, tBox)) {
+        return -1.f;
+    }
+#endif
 
 #if USE_BVH
     int stack[BVH_STACK_SIZE];

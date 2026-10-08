@@ -11,6 +11,7 @@
 #define BVH_LEAF_SIZE 4
 #define BVH_STACK_SIZE 32
 #define USE_BVH 1
+#define BOUNDING_VOLUME_CULLING 1
 
 enum GeomType
 {

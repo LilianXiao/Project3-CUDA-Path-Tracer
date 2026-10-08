@@ -18,7 +18,7 @@
 #include "intersections.h"
 #include "interactions.h"
 
-#define ERRORCHECK 1
+#define ERRORCHECK 0
 #define MATERIALSORT 1
 #define STREAMCOMPACT 1
 #define ANTIALIASING 1
