@@ -10,6 +10,21 @@ CUDA Path Tracer
 * Tested on: Windows 11, Intel(R) Core(TM) Ultra 9 185H (2.50 GHz), 16.0 GB RAM, NVIDIA GeForce RTX 4070 Laptop GPU (8 GB)
 Intel(R) Arc(TM) Graphics (128 MB) (Personal Laptop)
 
+## Important Modifications
+
+I made a few changes to the cmakelists, including adding extra files (such as procedural.cu and stb_image.h), as well as adding the below code block to fix some cuda issues.
+
+`if(WIN32)
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} \
+        -Xcompiler=/Zc:preprocessor")
+endif()`
+
+## Credits
+
+All 3D models and textures used as assets are made by me, with the exception of the Asaro head (created by [Fabiano Araujo](https://sketchfab.com/3d-models/asaro-head-9d26548182f8465a8e97371a9170561e)) and the Mario model and associated texture (belonging to Nintendo.)  Hornet and the Knight are characters from Hollow Knight, a game series by Team Cherry.
+
+I use [tinyobj](https://github.com/tinyobjloader/tinyobjloader) and [stb_image](https://github.com/nothings/stb) for obj and image loading support.
+
 ## Overview
 
 Path tracing provides a more physically accurate simulation of light by considering its reflection, refraction, transmission, absorption, and scattering properties.  In basic ray tracing, a ray is emitted from the camera/eye for each pixel of the image.  The intersections of these rays with objects in the scene, depending on the surface behaviors of the objects, can result in secondary rays.  For instance, when the view ray hits a specular object, a secondary ray is emitted.  Ray tracing supports direct illumination and approximates the behavior of light in terms of reflection, refraction, and shadowing.
@@ -97,6 +112,30 @@ Voronoi also divides space into unit cubes, but has a slighly different behavior
 
 FBM stands for Fractal Brownian Motion and is a method of overlaying several octaves/layers of Perlin noise, depending on frequency and strength parameters for each succeeding layer.  As octaves increase, more fine detail can be achieved.
 
+### Direct Lighting using Multiple Importance Sampling
+
+First image: naive pathtracing.  Second image: with multiple importance sampling.
+
+<img width="793" height="835" alt="image" src="https://github.com/user-attachments/assets/aa509407-54b6-441e-84ab-e86a9ff05e2a" />
+
+<img width="787" height="835" alt="image" src="https://github.com/user-attachments/assets/57950c22-68f9-4646-9a76-c6c7686141a3" />
+
+In naive pathtracing, light is only accumulated if a path hits an emissive surface.  Therefore, with just BRDF sampling, smaller emitters will converge rather poorly.  On the other hand, direct lighting explicitly traces to light sources as a guarantee, but as a result, larger emitters will converge poorly.  Multiple Importance Sampling (MIS) allows for these two sampling methods to have a weighted contribution, ultimately yielding images that are less noisy.  There is slightly higher cost per iteration due to testing another visibility ray per hit, but over time, converges much faster, especially in a closed scene.
+
+### Subsurface Scattering with Russian Roulette Path Termination
+
+In these renders, Hornet's mask is an offwhite subsurface scattering material, and the dark 3D model of her head beneath the mask is slightly visible.  As the density parameter increases, the material becomes less permeable and closer to a regular opaque surface.
+
+<img width="800" height="800" alt="cornell 2026-10-07_09-45-03z 146samp" src="https://github.com/user-attachments/assets/6b9e4b9a-303e-41ad-a309-e4126aeb6073" />
+
+<img width="800" height="800" alt="cornell 2026-10-07_09-43-23z 174samp" src="https://github.com/user-attachments/assets/19268dc4-ceec-4be1-b6b4-0b8ea559854b" />
+
+<img width="800" height="800" alt="cornell 2026-10-07_09-48-41z 181samp" src="https://github.com/user-attachments/assets/058922a3-8e7f-4b09-a7d2-fa9da8486db5" />
+
+In nature, the effects of Subsurface Scattering (SSS) can easily be observed when a permeable or thin material is exposed to the sun and achieves a slightly translucent, reddish/saturated color.  This can be seen when a light shines against your fingers or your earlobe.  SSS treats an object's inside as a uniform gradient with scattered particles.  A path will enter the surface, perform a random walk, and leave the mesh.  Generally speaking, light enters a surface and scatters, then leaves at a random/different point.
+
+Because random walks can easily have a lot of scattering steps, we need a way to control dim and less usable paths without completely removing them or their light contribution.  Russian Roulette path termination is a method where the path will survive only with a probability equal to its brightest color channel.  For example, a path with only around 5% strength will only have that probability of persisting, and if it does, it will be counted at full strength contribution.  This ultimately introduces marginally more noise, but it is reasonable for growing iterations.
+
 ### BVH Tree Acceleration Structure
 
 <img width="609" height="263" alt="image" src="https://github.com/user-attachments/assets/69e1875b-4ec2-4c70-81d8-5edaa9a37f68" />
@@ -110,3 +149,19 @@ A BVH consists of the root node (which is a box enclosing the entire mesh), the 
 First, the bounding boxes are computed for the current group.  Then, we pick the longest axis to equally halve the triangles by their position, and repeat.  This results in a balanced tree of approximately log_2(n) depth, where n is the total number of triangles.  During building, this tree is reordered such that triangles belonging to the same leaf are oriented next to each other in the buffer.
 
 The GPU is responsible for traversal and tests a ray against the root bounding box, continually tracking the closest hit.  This prevents every single ray from being tested against every single triangle, which can lead to humongous cost for very large and complex meshes.  With BVH, cost is proportional to the tree depth, not the total number of triangles.
+
+### Arbitrary Mesh Loading and Bounding Volume Intersection Culling
+
+OBJ meshes are loaded using [tinyobj](https://github.com/tinyobjloader/tinyobjloader).  The mesh triangles are buffered and a BVH is created.  The idea is that when some ray hits a mesh, the triangle is tested with single-triangle intersection (Moller-Trumbore), and if there is a hit, barycentric blending is done for smooth shading.  Bounding volume intersection culling works basically the same as the aforementioned BVH acceleration method.  Suppose a mesh in the scene only occupies a small visible area.  Without culling, a ray will be tested against every mesh triangle, so for a complex mesh, this is rather undesirable.  Culling does a box test against the bounding box, and if the ray misses, then the rest of the mesh is negligible.
+
+### Texture Mapping and Bump Mapping
+
+Texture images are loaded with the help of [stb_image](https://github.com/nothings/stb), and added to a texel buffer.  Note that textures are RGBA to handle transparent images.  Bump mapping is a method of heightmapping, which allows for 2D surfaces to appear 3D.  Based on the texture's u and v directions, the surface rises in a certain direction, and is overall scaled by some bump strength.
+
+First image: bump mapping applied over the textures on Hornet's cloak and needle to give a 3D effect.  Second image: a noisy, staticky bump map applied over Mario's textures.
+
+<img width="800" height="800" alt="cornell 2026-10-07_09-16-05z 199samp" src="https://github.com/user-attachments/assets/269b09fb-34ef-4b6a-8a4b-ff939e26da45" />
+
+<img width="800" height="800" alt="cornell 2026-10-07_08-21-41z 172samp" src="https://github.com/user-attachments/assets/df2a368c-448a-45f6-8f70-8a1438d4ef71" />
+
+Relative to other features implemented, texture and bump mapping are relatively reasonable cost.  Bump mapping makes approximately three times the memory reads that texture mapping does, since it has to do three texel reads whenever there is a hit.  Procedural textures have no memory cost but still use hashing as well as layering (for FBM).  One might expect a simple texture to be more cost-efficient than FBM Perlin, and much less costly than a significantly heavier FBM-Perlin attenuated Voronoi material.
