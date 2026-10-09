@@ -122,6 +122,10 @@ First image: naive pathtracing.  Second image: with multiple importance sampling
 
 In naive pathtracing, light is only accumulated if a path hits an emissive surface.  Therefore, with just BRDF sampling, smaller emitters will converge rather poorly.  On the other hand, direct lighting explicitly traces to light sources as a guarantee, but as a result, larger emitters will converge poorly.  Multiple Importance Sampling (MIS) allows for these two sampling methods to have a weighted contribution, ultimately yielding images that are less noisy.  There is slightly higher cost per iteration due to testing another visibility ray per hit, but over time, converges much faster, especially in a closed scene.
 
+<img width="605" height="374" alt="image" src="https://github.com/user-attachments/assets/21d4ba52-d156-493c-9eea-0dbdacc62c05" />
+
+Here, we observe that performance appears to be better for open scenes.  This is expected, as paths tend to terminate sooner in an open scene, additionally with the presence of stream compaction, which removes inactive paths.  On the contrary, in a closed scene, all paths survive and thus do muchh more work (where the work in one iteration is approximately the summation of all active paths / all bounces).  Direct lighting involves firing secondary shadow rays, which have relatively the same cost as the initial intersection test, which also adds cost to a live path.
+
 ### Subsurface Scattering with Russian Roulette Path Termination
 
 In these renders, Hornet's mask is an offwhite subsurface scattering material, and the dark 3D model of her head beneath the mask is slightly visible.  As the density parameter increases, the material becomes less permeable and closer to a regular opaque surface.
@@ -160,6 +164,8 @@ Testing using a scene where a complex mesh is only partially visible, with BVH a
 
 <img width="606" height="374" alt="image" src="https://github.com/user-attachments/assets/6b3451ec-f646-415e-ad9f-b08ff10a80b2" />
 
+<img width="605" height="372" alt="image" src="https://github.com/user-attachments/assets/bacc9740-58a3-4add-9296-e319d7f49931" />
+
 Culling in conjunction with BVH acceleration structures helps somewhat for meshes that are only partially in view.  For a mesh with n triangles, without culling, there will be n ray tests.  For an object that is completely missed, the number of ray tests will be drastically diminished (to only one if the initial hit misses.)
 
 ### Texture Mapping and Bump Mapping
@@ -174,4 +180,4 @@ First image: bump mapping applied over the textures on Hornet's cloak and needle
 
 <img width="604" height="373" alt="image" src="https://github.com/user-attachments/assets/9e086615-e394-46f5-86a7-4de5224ed0f4" />
 
-Relative to other features implemented, texture and bump mapping are relatively reasonable cost.  Bump mapping makes approximately three times the memory reads that texture mapping does, since it has to do three texel reads whenever there is a hit.  Procedural textures have no memory cost but still use hashing as well as layering (for FBM).  One might expect a simple texture to be more cost-efficient than FBM Perlin, and much less costly than a significantly heavier FBM-Perlin attenuated Voronoi material.  Overall, it's likely dependent on the number of different materials and how heavy/detailed the procedural materials are.  The performance results appear to support this.
+Relative to other features implemented, texture and bump mapping are relatively low cost.  Bump mapping makes approximately three times the memory reads that texture mapping does, since it has to do three texel reads whenever there is a hit.  Procedural textures have no memory cost but still use hashing as well as layering (for FBM).  One might expect a simple texture to be more cost-efficient than FBM Perlin, and much less costly than a significantly heavier FBM-Perlin attenuated Voronoi material.  Overall, it's likely dependent on the number of different materials and how heavy/detailed the procedural materials are.  The performance results appear to support this.
