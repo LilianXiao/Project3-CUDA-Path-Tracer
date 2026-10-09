@@ -154,6 +154,10 @@ First, the bounding boxes are computed for the current group.  Then, we pick the
 
 The GPU is responsible for traversal and tests a ray against the root bounding box, continually tracking the closest hit.  This prevents every single ray from being tested against every single triangle, which can lead to humongous cost for very large and complex meshes.  With BVH, cost is proportional to the tree depth, not the total number of triangles.
 
+<img width="604" height="372" alt="image" src="https://github.com/user-attachments/assets/208e5b7d-71fa-4f72-9a87-a79745bd070b" />
+
+Performance is not affected by increasing the BVH stack size.  This is because stack size controls capacity and does not affect the work being done; that is, a BVH traversal will use entries based on the depth of the tree, and additional reserved space will not change this.
+
 ### Arbitrary Mesh Loading and Bounding Volume Intersection Culling
 
 OBJ meshes are loaded using [tinyobj](https://github.com/tinyobjloader/tinyobjloader).  The mesh triangles are buffered and a BVH is created.  The idea is that when some ray hits a mesh, the triangle is tested with single-triangle intersection (Moller-Trumbore), and if there is a hit, barycentric blending is done for smooth shading.  Bounding volume intersection culling works basically the same as the aforementioned BVH acceleration method.  Suppose a mesh in the scene only occupies a small visible area.  Without culling, a ray will be tested against every mesh triangle, so for a complex mesh, this is rather undesirable.  Culling does a box test against the bounding box, and if the ray misses, then the rest of the mesh is negligible.
