@@ -154,6 +154,14 @@ The GPU is responsible for traversal and tests a ray against the root bounding b
 
 OBJ meshes are loaded using [tinyobj](https://github.com/tinyobjloader/tinyobjloader).  The mesh triangles are buffered and a BVH is created.  The idea is that when some ray hits a mesh, the triangle is tested with single-triangle intersection (Moller-Trumbore), and if there is a hit, barycentric blending is done for smooth shading.  Bounding volume intersection culling works basically the same as the aforementioned BVH acceleration method.  Suppose a mesh in the scene only occupies a small visible area.  Without culling, a ray will be tested against every mesh triangle, so for a complex mesh, this is rather undesirable.  Culling does a box test against the bounding box, and if the ray misses, then the rest of the mesh is negligible.
 
+Testing using a scene where a complex mesh is only partially visible, without BVH acceleration:
+
+Testing using a scene where a complex mesh is only partially visible, with BVH acceleration also enabled:
+
+<img width="606" height="374" alt="image" src="https://github.com/user-attachments/assets/6b3451ec-f646-415e-ad9f-b08ff10a80b2" />
+
+Culling in conjunction with BVH acceleration structures helps somewhat for meshes that are only partially in view.  For a mesh with n triangles, without culling, there will be n ray tests.  For an object that is completely missed, the number of ray tests will be drastically diminished (to only one if the initial hit misses.)
+
 ### Texture Mapping and Bump Mapping
 
 Texture images are loaded with the help of [stb_image](https://github.com/nothings/stb), and added to a texel buffer.  Note that textures are RGBA to handle transparent images.  Bump mapping is a method of heightmapping, which allows for 2D surfaces to appear 3D.  Based on the texture's u and v directions, the surface rises in a certain direction, and is overall scaled by some bump strength.
@@ -164,4 +172,6 @@ First image: bump mapping applied over the textures on Hornet's cloak and needle
 
 <img width="800" height="800" alt="cornell 2026-10-07_08-21-41z 172samp" src="https://github.com/user-attachments/assets/df2a368c-448a-45f6-8f70-8a1438d4ef71" />
 
-Relative to other features implemented, texture and bump mapping are relatively reasonable cost.  Bump mapping makes approximately three times the memory reads that texture mapping does, since it has to do three texel reads whenever there is a hit.  Procedural textures have no memory cost but still use hashing as well as layering (for FBM).  One might expect a simple texture to be more cost-efficient than FBM Perlin, and much less costly than a significantly heavier FBM-Perlin attenuated Voronoi material.
+<img width="604" height="373" alt="image" src="https://github.com/user-attachments/assets/9e086615-e394-46f5-86a7-4de5224ed0f4" />
+
+Relative to other features implemented, texture and bump mapping are relatively reasonable cost.  Bump mapping makes approximately three times the memory reads that texture mapping does, since it has to do three texel reads whenever there is a hit.  Procedural textures have no memory cost but still use hashing as well as layering (for FBM).  One might expect a simple texture to be more cost-efficient than FBM Perlin, and much less costly than a significantly heavier FBM-Perlin attenuated Voronoi material.  Overall, it's likely dependent on the number of different materials and how heavy/detailed the procedural materials are.  The performance results appear to support this.
