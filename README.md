@@ -21,7 +21,7 @@ endif()`
 
 ## Credits
 
-All 3D models and textures used as assets are made by me, with the exception of the Asaro head (created by [Fabiano Araujo](https://sketchfab.com/3d-models/asaro-head-9d26548182f8465a8e97371a9170561e)) and the Mario model and associated texture (belonging to Nintendo.)  Hornet and the Knight are characters from Hollow Knight, a game series by Team Cherry.
+All 3D models and textures used as assets are made by me, with the exception of the HDRI maps, Asaro head (created by [Fabiano Araujo](https://sketchfab.com/3d-models/asaro-head-9d26548182f8465a8e97371a9170561e)), and the Mario model and associated texture (belonging to Nintendo.)  Hornet and the Knight are characters from Hollow Knight, a game series by Team Cherry.
 
 I use [tinyobj](https://github.com/tinyobjloader/tinyobjloader) and [stb_image](https://github.com/nothings/stb) for obj and image loading support.
 
